@@ -195,6 +195,9 @@ def _document(class_name, ascend_id, level, specs, skillsets,
         '<Build level="%d" className="%s" ascendClassName="%s" '
         'mainSocketGroup="1" viewMode="TREE">' % (
             level, _esc(class_name), _esc(_ascend_name(class_name, ascend_id))),
+        # A child element is required for stricter parsers (e.g. pobb.in);
+        # Path of Building recalculates all stats on import regardless.
+        '<PlayerStat stat="Level" value="%d"/>' % level,
         '</Build>',
         '<Import/>',
         '<Skills sortGemsByDPS="true" activeSkillSet="1">',

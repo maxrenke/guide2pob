@@ -9,6 +9,7 @@ from .scrape import load_build, build_variants, slug_from_url, ScrapeError
 from .convert import convert, convert_merged
 from .pobdata import find_install, PoBData
 from .analyze import summarize, analyze, AnalysisError
+from .upload import upload_pobbin, UploadError
 
 
 def _build_parser():
@@ -27,6 +28,8 @@ def _build_parser():
                    help='output file (single variant) or directory (all)')
     p.add_argument('--xml', action='store_true',
                    help='also write the raw build XML')
+    p.add_argument('--upload', action='store_true',
+                   help='upload to pobb.in and print a shareable link')
     p.add_argument('--json', action='store_true',
                    help='dump the scraped build data as JSON and exit')
     p.add_argument('--class', dest='cls', metavar='NAME',
@@ -143,10 +146,22 @@ def main(argv=None):
         else:
             print(meta['code'])
 
+        if args.upload:
+            _print_pobbin(meta['code'])
+
         if args.analyze:
             _run_analysis(variants[idx], meta, pob, args)
 
     return rc
+
+
+def _print_pobbin(code):
+    try:
+        url = upload_pobbin(code)
+    except UploadError as e:
+        print(f'pobb.in upload failed: {e}', file=sys.stderr)
+        return
+    print(f'pobb.in: {url}')
 
 
 def _run_merge(variants, slug, args, pob):
@@ -170,6 +185,8 @@ def _run_merge(variants, slug, args, pob):
         print(f'wrote {args.out}', file=sys.stderr)
     else:
         print(meta['code'])
+    if args.upload:
+        _print_pobbin(meta['code'])
     return 0
 
 

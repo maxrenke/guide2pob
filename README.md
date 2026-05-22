@@ -48,6 +48,9 @@ moba2pob <url> --variant 1 -o build.txt
 
 # Merge all variants into ONE build with switchable Tree/Item/Skill sets
 moba2pob <url> --merge -o build.txt
+
+# Upload to pobb.in and print a shareable link (opens directly in PoB)
+moba2pob <url> --merge --upload
 ```
 
 Paste the resulting code into Path of Building 2:
@@ -61,6 +64,7 @@ Paste the resulting code into Path of Building 2:
 | `--merge` | Merge all variants into one build with switchable Tree specs, Item Sets, and Skill Sets. |
 | `-o, --out PATH` | Output file (single) or directory (`all`). Default: stdout. |
 | `--xml` | Also write the raw build XML. |
+| `--upload` | Upload to [pobb.in](https://pobb.in) and print a shareable link. |
 | `--json` | Dump the scraped build data as JSON and exit. |
 | `--class NAME` | Override the detected class. |
 | `--ascendancy NAME` | Override the detected ascendancy. |
