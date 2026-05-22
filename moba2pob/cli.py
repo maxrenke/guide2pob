@@ -6,7 +6,7 @@ import argparse
 
 from . import __version__
 from .scrape import load_build, build_variants, slug_from_url, ScrapeError
-from .convert import convert
+from .convert import convert, convert_merged
 from .pobdata import find_install, PoBData
 from .analyze import summarize, analyze, AnalysisError
 
@@ -20,6 +20,9 @@ def _build_parser():
                    help='Mobalytics build URL, or a local .html/.json file')
     p.add_argument('--variant', default='0',
                    help="variant index to convert, or 'all' (default: 0)")
+    p.add_argument('--merge', action='store_true',
+                   help='merge all variants into one build with switchable '
+                        'Tree specs, Item Sets, and Skill Sets')
     p.add_argument('-o', '--out',
                    help='output file (single variant) or directory (all)')
     p.add_argument('--xml', action='store_true',
@@ -95,6 +98,10 @@ def main(argv=None):
           f'{"s" if len(variants) != 1 else ""})', file=sys.stderr)
 
     pob = _load_pob(args)
+    slug = slug_from_url(args.source) or 'build'
+
+    if args.merge:
+        return _run_merge(variants, slug, args, pob)
 
     if args.variant == 'all':
         indices = list(range(len(variants)))
@@ -109,7 +116,6 @@ def main(argv=None):
                   f'(0..{len(variants) - 1})', file=sys.stderr)
             return 2
 
-    slug = slug_from_url(args.source) or 'build'
     out_dir = args.out if (args.out and len(indices) > 1) else None
     if out_dir:
         os.makedirs(out_dir, exist_ok=True)
@@ -141,6 +147,30 @@ def main(argv=None):
             _run_analysis(variants[idx], meta, pob, args)
 
     return rc
+
+
+def _run_merge(variants, slug, args, pob):
+    titles = [f'Variant {i} ({len(v.get("passiveTree", {}).get("mainTree", {}).get("selectedSlugs", []))}n)'
+              for i, v in enumerate(variants)]
+    try:
+        meta = convert_merged(variants, pob=pob, class_override=args.cls,
+                              ascendancy_override=args.ascendancy,
+                              level=args.level, titles=titles)
+    except ValueError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 1
+    print(f"# merged: {meta['class']} / {meta['ascendancy']}  "
+          f"- {meta['variant_count']} variants, tree {meta['tree_version']}",
+          file=sys.stderr)
+
+    if args.out:
+        _write(args.out, meta['code'])
+        if args.xml:
+            _write(os.path.splitext(args.out)[0] + '.xml', meta['xml'])
+        print(f'wrote {args.out}', file=sys.stderr)
+    else:
+        print(meta['code'])
+    return 0
 
 
 def _run_analysis(variant, meta, pob, args):

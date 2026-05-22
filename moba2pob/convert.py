@@ -1,8 +1,14 @@
-"""Convert a Mobalytics build variant into a Path of Building 2 import code.
+"""Convert Mobalytics build variants into Path of Building 2 import codes.
 
 A PoB import code is standard base64 of zlib-deflated build XML. Mobalytics
 passive node slugs (``node-62677``) use the same numeric IDs as PoB's passive
 tree, so the tree maps across directly.
+
+Two output shapes are supported:
+
+* ``convert``        - one variant -> one standalone build code.
+* ``convert_merged`` - several variants -> a single build code where each
+  variant is a switchable Tree spec, Item Set, and Skill Set.
 """
 import re
 import zlib
@@ -10,7 +16,7 @@ import base64
 import html as _html
 from collections import Counter
 
-from .poe2data import resolve_class
+from .poe2data import resolve_class, CLASSES
 
 # Mobalytics equipment slot -> PoB2 item slot.
 _SLOT_MAP = {
@@ -64,8 +70,8 @@ def detect_ascendancy(variant, pob):
 # -- gems -----------------------------------------------------------------
 def gem_name(slug, pob):
     """Resolve a Mobalytics gem slug to a PoB gem name."""
-    s = slug.lower()
-    if pob:
+    s = (slug or '').lower()
+    if pob and s:
         gems = pob.gems
         candidates = [
             s,
@@ -77,7 +83,6 @@ def gem_name(slug, pob):
         for c in candidates:
             if c in gems:
                 return gems[c]
-    # Fallback: prettify the slug.
     core = re.sub(r'^support', '',
                   re.sub(r'(player.*|two|three|four)$', '', s))
     return core.title() or slug
@@ -130,33 +135,60 @@ def _item_text(slot, pob):
     return '\n'.join(lines)
 
 
-# -- XML ------------------------------------------------------------------
-def variant_to_xml(variant, class_name, class_id, ascend_id,
-                   tree_version, level=90):
-    nodes = ','.join(_tree_nodes(variant))
+# -- XML components -------------------------------------------------------
+def _ascend_name(class_name, ascend_id):
+    if ascend_id and class_name in CLASSES:
+        ascs = CLASSES[class_name]['ascendancies']
+        if 1 <= ascend_id <= len(ascs):
+            return ascs[ascend_id - 1]
+    return 'None'
 
+
+def _spec_xml(variant, class_id, ascend_id, tree_version, title=None):
+    attrs = ('treeVersion="%s" classId="%d" ascendClassId="%d" nodes="%s" '
+             'masteryEffects=""' % (tree_version, class_id, ascend_id,
+                                    ','.join(_tree_nodes(variant))))
+    if title:
+        attrs = 'title="%s" %s' % (_esc(title), attrs)
+    return '<Spec %s>\n</Spec>' % attrs
+
+
+def _skillset_xml(variant, pob, set_id, title=None):
     skills = []
     for grp in _skill_groups(variant):
         gem_xml = []
         for g in grp['gems']:
-            nm = g['name'] or gem_name(g['slug'], _CURRENT_POB[0])
+            nm = g['name'] or gem_name(g['slug'], pob)
             gem_xml.append(
                 '<Gem level="20" quality="0" qualityId="Default" enabled="true" '
                 'enableGlobal1="true" enableGlobal2="true" nameSpec="%s"/>'
                 % _esc(nm))
         skills.append('<Skill mainActiveSkill="1" enabled="true" label="%s">\n%s\n</Skill>'
                        % (_esc(grp['label']), '\n'.join(gem_xml)))
+    head = '<SkillSet id="%d"%s>' % (
+        set_id, ' title="%s"' % _esc(title) if title else '')
+    return head + '\n' + '\n'.join(skills) + '\n</SkillSet>'
 
+
+def _itemset_xml(variant, pob, set_id, start_item_id, title=None):
+    """Return (item_xml_list, itemset_xml, next_item_id)."""
     items, slots = [], []
+    iid = start_item_id
     equipment = variant.get('equipment') or {}
     for moba_slot, pob_slot in _SLOT_MAP.items():
-        txt = _item_text(equipment.get(moba_slot), _CURRENT_POB[0])
+        txt = _item_text(equipment.get(moba_slot), pob)
         if not txt:
             continue
-        iid = len(items) + 1
         items.append('<Item id="%d">\n%s\n</Item>' % (iid, _esc(txt)))
         slots.append('<Slot name="%s" itemId="%d"/>' % (pob_slot, iid))
+        iid += 1
+    head = '<ItemSet useSecondWeaponSet="false" id="%d"%s>' % (
+        set_id, ' title="%s"' % _esc(title) if title else '')
+    return items, head + '\n' + '\n'.join(slots) + '\n</ItemSet>', iid
 
+
+def _document(class_name, ascend_id, level, specs, skillsets,
+              all_items, itemsets):
     return '\n'.join([
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<PathOfBuilding>',
@@ -166,33 +198,18 @@ def variant_to_xml(variant, class_name, class_id, ascend_id,
         '</Build>',
         '<Import/>',
         '<Skills sortGemsByDPS="true" activeSkillSet="1">',
-        '<SkillSet id="1">',
-        '\n'.join(skills),
-        '</SkillSet>',
+        '\n'.join(skillsets),
         '</Skills>',
         '<Tree activeSpec="1">',
-        '<Spec treeVersion="%s" classId="%d" ascendClassId="%d" nodes="%s" '
-        'masteryEffects="">' % (tree_version, class_id, ascend_id, nodes),
-        '</Spec>',
+        '\n'.join(specs),
         '</Tree>',
         '<Items activeItemSet="1">',
-        '\n'.join(items),
-        '<ItemSet useSecondWeaponSet="false" id="1">',
-        '\n'.join(slots),
-        '</ItemSet>',
+        '\n'.join(all_items),
+        '\n'.join(itemsets),
         '</Items>',
         '<Config/>',
         '</PathOfBuilding>',
     ])
-
-
-def _ascend_name(class_name, ascend_id):
-    from .poe2data import CLASSES
-    if ascend_id and class_name in CLASSES:
-        ascs = CLASSES[class_name]['ascendancies']
-        if 1 <= ascend_id <= len(ascs):
-            return ascs[ascend_id - 1]
-    return 'None'
 
 
 def encode(xml):
@@ -200,20 +217,26 @@ def encode(xml):
     return base64.b64encode(zlib.compress(xml.encode('utf-8'), 9)).decode('ascii')
 
 
-# convert() passes the active PoBData to the XML builder without threading it
-# through every signature.
-_CURRENT_POB = [None]
+# -- public API -----------------------------------------------------------
+def _resolve(variant, pob, class_override, ascendancy_override):
+    ascendancy = ascendancy_override or detect_ascendancy(variant, pob)
+    class_name, class_id, ascend_id = resolve_class(class_override, ascendancy)
+    detected = bool(ascendancy and not ascendancy_override)
+    return class_name, class_id, ascend_id, detected
 
 
 def convert(variant, pob=None, class_override=None,
-            ascendancy_override=None, level=90):
-    """Convert one build variant. Returns dict with code, xml, and metadata."""
-    _CURRENT_POB[0] = pob
-    ascendancy = ascendancy_override or detect_ascendancy(variant, pob)
-    class_name, class_id, ascend_id = resolve_class(class_override, ascendancy)
+            ascendancy_override=None, level=90, title=None):
+    """Convert one build variant into a standalone build code."""
+    class_name, class_id, ascend_id, detected = _resolve(
+        variant, pob, class_override, ascendancy_override)
     tree_version = pob.tree_version if pob else '0_4'
-    xml = variant_to_xml(variant, class_name, class_id, ascend_id,
-                         tree_version, level)
+
+    spec = _spec_xml(variant, class_id, ascend_id, tree_version, title)
+    skillset = _skillset_xml(variant, pob, 1, title)
+    items, itemset, _ = _itemset_xml(variant, pob, 1, 1, title)
+    xml = _document(class_name, ascend_id, level, [spec], [skillset],
+                    items, [itemset])
     return {
         'code': encode(xml),
         'xml': xml,
@@ -222,5 +245,48 @@ def convert(variant, pob=None, class_override=None,
         'tree_version': tree_version,
         'node_count': len(_tree_nodes(variant)),
         'skill_count': len(_skill_groups(variant)),
-        'detected_ascendancy': bool(ascendancy and not ascendancy_override),
+        'detected_ascendancy': detected,
+    }
+
+
+def convert_merged(variants, pob=None, class_override=None,
+                    ascendancy_override=None, level=90, titles=None):
+    """Merge several variants into one build with switchable specs/sets.
+
+    Each variant becomes a Tree spec, a Skill Set, and an Item Set, all
+    selectable from the dropdowns inside Path of Building.
+    """
+    if not variants:
+        raise ValueError("no variants to merge")
+    titles = titles or [f'Variant {i}' for i in range(len(variants))]
+
+    # Build-wide class/ascendancy comes from the first variant.
+    class_name, class_id, ascend_id, detected = _resolve(
+        variants[0], pob, class_override, ascendancy_override)
+    tree_version = pob.tree_version if pob else '0_4'
+
+    specs, skillsets, all_items, itemsets = [], [], [], []
+    next_id = 1
+    for i, variant in enumerate(variants):
+        # Each spec may have its own ascendancy, but class is build-wide.
+        _, c_id, a_id, _ = _resolve(variant, pob, class_override,
+                                    ascendancy_override)
+        specs.append(_spec_xml(variant, c_id, a_id, tree_version, titles[i]))
+        skillsets.append(_skillset_xml(variant, pob, i + 1, titles[i]))
+        items, itemset, next_id = _itemset_xml(
+            variant, pob, i + 1, next_id, titles[i])
+        all_items += items
+        itemsets.append(itemset)
+
+    xml = _document(class_name, ascend_id, level, specs, skillsets,
+                    all_items, itemsets)
+    return {
+        'code': encode(xml),
+        'xml': xml,
+        'class': class_name,
+        'ascendancy': _ascend_name(class_name, ascend_id),
+        'tree_version': tree_version,
+        'variant_count': len(variants),
+        'node_count': sum(len(_tree_nodes(v)) for v in variants),
+        'detected_ascendancy': detected,
     }

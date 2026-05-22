@@ -40,11 +40,14 @@ python -m moba2pob <url>
 # Convert the first variant, print the PoB code to stdout
 moba2pob https://mobalytics.gg/poe-2/builds/ronarray-minion-lich
 
-# Convert every variant into ./out/
+# Convert every variant into ./out/ as separate builds
 moba2pob <url> --variant all -o out/ --xml
 
 # Convert one variant to a file
 moba2pob <url> --variant 1 -o build.txt
+
+# Merge all variants into ONE build with switchable Tree/Item/Skill sets
+moba2pob <url> --merge -o build.txt
 ```
 
 Paste the resulting code into Path of Building 2:
@@ -55,6 +58,7 @@ Paste the resulting code into Path of Building 2:
 | Flag | Description |
 |------|-------------|
 | `--variant N` / `--variant all` | Which build variant to convert (default: `0`). |
+| `--merge` | Merge all variants into one build with switchable Tree specs, Item Sets, and Skill Sets. |
 | `-o, --out PATH` | Output file (single) or directory (`all`). Default: stdout. |
 | `--xml` | Also write the raw build XML. |
 | `--json` | Dump the scraped build data as JSON and exit. |
