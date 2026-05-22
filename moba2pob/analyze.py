@@ -90,7 +90,7 @@ def _call_anthropic(prompt, model, api_key, timeout):
             'https://api.anthropic.com/v1/messages',
             {
                 'model': model,
-                'max_tokens': 1024,
+                'max_tokens': 2048,
                 'system': _SYSTEM,
                 'messages': [{'role': 'user', 'content': prompt}],
             },

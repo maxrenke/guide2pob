@@ -1,5 +1,7 @@
 # moba2pob
 
+[![CI](https://github.com/maxrenke/moba2pob/actions/workflows/ci.yml/badge.svg)](https://github.com/maxrenke/moba2pob/actions/workflows/ci.yml)
+
 Convert [Mobalytics](https://mobalytics.gg/poe-2) Path of Exile 2 build guides
 into [Path of Building](https://pathofbuilding.community/) import codes.
 
@@ -125,6 +127,17 @@ The analysis is informational - it never changes the generated code.
 
 This is an unofficial tool. Path of Exile and Path of Building are the
 property of their respective owners.
+
+## Development
+
+```sh
+git clone https://github.com/maxrenke/moba2pob
+cd moba2pob
+pip install -e .
+python -m unittest discover -v
+```
+
+CI runs the test suite on Python 3.9-3.13 on Ubuntu and Windows.
 
 ## License
 

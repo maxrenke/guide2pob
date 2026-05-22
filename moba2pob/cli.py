@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import argparse
+import subprocess
 
 from . import __version__
 from .scrape import (
@@ -77,8 +78,8 @@ def _load_pob(args):
     return PoBData(install)
 
 
-def _convert_one(variant, idx, args, pob):
-    title = args._labels[idx] if idx < len(args._labels) else None
+def _convert_one(variant, idx, args, pob, labels):
+    title = labels[idx] if idx < len(labels) else None
     meta = convert(variant, pob=pob, class_override=args.cls,
                    ascendancy_override=args.ascendancy, level=args.level,
                    title=title)
@@ -105,7 +106,6 @@ def main(argv=None):
         return 2
 
     labels = variant_labels(html, variants)
-    args._labels = labels  # threaded through to helpers
 
     if args.json:
         json.dump(doc, sys.stdout, indent=1)
@@ -119,7 +119,7 @@ def main(argv=None):
     slug = slug_from_url(args.source) or 'build'
 
     if args.merge:
-        return _run_merge(variants, slug, args, pob)
+        return _run_merge(variants, slug, args, pob, labels)
 
     if args.variant == 'all':
         indices = list(range(len(variants)))
@@ -141,7 +141,7 @@ def main(argv=None):
     rc = 0
     for idx in indices:
         try:
-            meta = _convert_one(variants[idx], idx, args, pob)
+            meta = _convert_one(variants[idx], idx, args, pob, labels)
         except ValueError as e:
             print(f'error: variant {idx}: {e}', file=sys.stderr)
             rc = 1
@@ -179,14 +179,24 @@ def _print_pobbin(code, open_in_pob=False):
     print(f"pobb.in:  {info['url']}")
     print(f"open PoB: {info['pob2_url']}")
     if open_in_pob:
-        try:
-            os.startfile(info['pob2_url'])
-        except OSError as e:
-            print(f'could not launch PoB2: {e}', file=sys.stderr)
+        _open_url(info['pob2_url'])
 
 
-def _run_merge(variants, slug, args, pob):
-    titles = [args._labels[i] or f'Variant {i}' for i in range(len(variants))]
+def _open_url(url):
+    """Open a URL via the OS handler (PoB2 registers pob2:// on Windows)."""
+    try:
+        if sys.platform == 'win32':
+            os.startfile(url)  # noqa: S606 - intentional protocol handler dispatch
+        elif sys.platform == 'darwin':
+            subprocess.run(['open', url], check=False)
+        else:
+            subprocess.run(['xdg-open', url], check=False)
+    except OSError as e:
+        print(f'could not open {url}: {e}', file=sys.stderr)
+
+
+def _run_merge(variants, slug, args, pob, labels):
+    titles = [labels[i] or f'Variant {i}' for i in range(len(variants))]
     try:
         meta = convert_merged(variants, pob=pob, class_override=args.cls,
                               ascendancy_override=args.ascendancy,
