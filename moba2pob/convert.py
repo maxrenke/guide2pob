@@ -198,7 +198,7 @@ def _itemset_xml(variant, pob, set_id, start_item_id, title=None):
 def _document(cls_info, level, specs, skillsets, all_items, itemsets):
     return '\n'.join([
         '<?xml version="1.0" encoding="UTF-8"?>',
-        '<PathOfBuilding>',
+        '<PathOfBuilding2>',
         # targetVersion="0_1" marks this as a Path of Exile 2 build; without
         # it pobb.in / PoB treat the build as legacy PoE1 and the passive
         # tree fails to render.
@@ -222,7 +222,7 @@ def _document(cls_info, level, specs, skillsets, all_items, itemsets):
         '\n'.join(itemsets),
         '</Items>',
         '<Config/>',
-        '</PathOfBuilding>',
+        '</PathOfBuilding2>',
     ])
 
 
@@ -262,15 +262,26 @@ def convert(variant, pob=None, class_override=None,
 
 
 def convert_merged(variants, pob=None, class_override=None,
-                    ascendancy_override=None, level=90, titles=None):
+                    ascendancy_override=None, level=90, titles=None,
+                    progression_order=True):
     """Merge several variants into one build with switchable specs/sets.
 
     Each variant becomes a Tree spec, a Skill Set, and an Item Set, all
     selectable from the dropdowns inside Path of Building.
+
+    With ``progression_order`` (default), variants are sorted ascending by
+    main-tree node count so leveling variants come before endgame ones.
     """
     if not variants:
         raise ValueError("no variants to merge")
     titles = titles or [f'Variant {i}' for i in range(len(variants))]
+    if progression_order:
+        order = sorted(range(len(variants)),
+                       key=lambda i: len((variants[i].get('passiveTree') or {})
+                                          .get('mainTree', {})
+                                          .get('selectedSlugs', [])))
+        variants = [variants[i] for i in order]
+        titles = [titles[i] for i in order]
 
     # Build-wide class/ascendancy comes from the first variant.
     head = _resolve(variants[0], pob, class_override, ascendancy_override)

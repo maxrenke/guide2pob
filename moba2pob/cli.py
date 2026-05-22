@@ -25,6 +25,9 @@ def _build_parser():
     p.add_argument('--merge', action='store_true',
                    help='merge all variants into one build with switchable '
                         'Tree specs, Item Sets, and Skill Sets')
+    p.add_argument('--no-reorder', action='store_true',
+                   help='keep Mobalytics variant order instead of sorting '
+                        'by progression (leveling -> endgame)')
     p.add_argument('-o', '--out',
                    help='output file (single variant) or directory (all)')
     p.add_argument('--xml', action='store_true',
@@ -176,7 +179,8 @@ def _run_merge(variants, slug, args, pob):
     try:
         meta = convert_merged(variants, pob=pob, class_override=args.cls,
                               ascendancy_override=args.ascendancy,
-                              level=args.level, titles=titles)
+                              level=args.level, titles=titles,
+                              progression_order=not args.no_reorder)
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
