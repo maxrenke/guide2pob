@@ -37,4 +37,10 @@ def upload_pobbin(code, timeout=30):
         raise UploadError(f"pobb.in upload failed: {e}") from e
     if not ident or '/' in ident or len(ident) > 64:
         raise UploadError(f"unexpected pobb.in response: {ident!r}")
-    return f"https://pobb.in/{ident}"
+    return {
+        'id': ident,
+        'url': f'https://pobb.in/{ident}',
+        # PoB2 registers a protocol handler for pob2:// links. Clicking this
+        # opens the build directly in PoB2 (Import from URL flow).
+        'pob2_url': f'pob2://pobbin/{ident}',
+    }

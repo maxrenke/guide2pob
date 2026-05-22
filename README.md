@@ -64,7 +64,9 @@ Paste the resulting code into Path of Building 2:
 | `--merge` | Merge all variants into one build with switchable Tree specs, Item Sets, and Skill Sets. |
 | `-o, --out PATH` | Output file (single) or directory (`all`). Default: stdout. |
 | `--xml` | Also write the raw build XML. |
-| `--upload` | Upload to [pobb.in](https://pobb.in) and print a shareable link. |
+| `--upload` | Upload to [pobb.in](https://pobb.in) and print both a web link and a `pob2://` link that opens directly in Path of Building 2. |
+| `--open` | After `--upload`, launch the `pob2://` link to open the build in PoB2. |
+| `-p, --print-code` | Print the import code to stdout even when `-o` is set. |
 | `--json` | Dump the scraped build data as JSON and exit. |
 | `--class NAME` | Override the detected class. |
 | `--ascendancy NAME` | Override the detected ascendancy. |

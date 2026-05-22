@@ -34,6 +34,11 @@ def _build_parser():
                    help='also write the raw build XML')
     p.add_argument('--upload', action='store_true',
                    help='upload to pobb.in and print a shareable link')
+    p.add_argument('-p', '--print-code', action='store_true',
+                   help='print the import code to stdout even when -o is set')
+    p.add_argument('--open', action='store_true',
+                   help='after --upload, launch the pob2:// link to open '
+                        'the build directly in Path of Building 2')
     p.add_argument('--json', action='store_true',
                    help='dump the scraped build data as JSON and exit')
     p.add_argument('--class', dest='cls', metavar='NAME',
@@ -153,11 +158,11 @@ def main(argv=None):
             if args.xml:
                 _write(os.path.splitext(args.out)[0] + '.xml', meta['xml'])
             print(f'wrote {args.out}', file=sys.stderr)
-        else:
+        if args.print_code or (not args.out and not out_dir):
             print(meta['code'])
 
         if args.upload:
-            _print_pobbin(meta['code'])
+            _print_pobbin(meta['code'], open_in_pob=args.open)
 
         if args.analyze:
             _run_analysis(variants[idx], meta, pob, args)
@@ -165,13 +170,19 @@ def main(argv=None):
     return rc
 
 
-def _print_pobbin(code):
+def _print_pobbin(code, open_in_pob=False):
     try:
-        url = upload_pobbin(code)
+        info = upload_pobbin(code)
     except UploadError as e:
         print(f'pobb.in upload failed: {e}', file=sys.stderr)
         return
-    print(f'pobb.in: {url}')
+    print(f"pobb.in:  {info['url']}")
+    print(f"open PoB: {info['pob2_url']}")
+    if open_in_pob:
+        try:
+            os.startfile(info['pob2_url'])
+        except OSError as e:
+            print(f'could not launch PoB2: {e}', file=sys.stderr)
 
 
 def _run_merge(variants, slug, args, pob):
@@ -193,10 +204,10 @@ def _run_merge(variants, slug, args, pob):
         if args.xml:
             _write(os.path.splitext(args.out)[0] + '.xml', meta['xml'])
         print(f'wrote {args.out}', file=sys.stderr)
-    else:
+    if args.print_code or not args.out:
         print(meta['code'])
     if args.upload:
-        _print_pobbin(meta['code'])
+        _print_pobbin(meta['code'], open_in_pob=args.open)
     return 0
 
 
