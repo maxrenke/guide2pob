@@ -5,7 +5,8 @@ import json
 import argparse
 
 from . import __version__
-from .scrape import load_build, build_variants, slug_from_url, ScrapeError
+from .scrape import (
+    load_build, build_variants, variant_labels, slug_from_url, ScrapeError)
 from .convert import convert, convert_merged
 from .pobdata import find_install, PoBData
 from .analyze import summarize, analyze, AnalysisError
@@ -69,10 +70,13 @@ def _load_pob(args):
 
 
 def _convert_one(variant, idx, args, pob):
+    title = args._labels[idx] if idx < len(args._labels) else None
     meta = convert(variant, pob=pob, class_override=args.cls,
-                   ascendancy_override=args.ascendancy, level=args.level)
+                   ascendancy_override=args.ascendancy, level=args.level,
+                   title=title)
     detected = ' (detected)' if meta['detected_ascendancy'] else ''
-    print(f"# variant {idx}: {meta['class']} / {meta['ascendancy']}{detected}  "
+    label = f' "{title}"' if title else ''
+    print(f"# variant {idx}{label}: {meta['class']} / {meta['ascendancy']}{detected}  "
           f"- {meta['node_count']} nodes, {meta['skill_count']} skill groups, "
           f"tree {meta['tree_version']}", file=sys.stderr)
     return meta
@@ -82,7 +86,7 @@ def main(argv=None):
     args = _build_parser().parse_args(argv)
 
     try:
-        doc = load_build(args.source)
+        doc, html = load_build(args.source)
     except ScrapeError as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -91,6 +95,9 @@ def main(argv=None):
     if not variants:
         print('error: build has no variants', file=sys.stderr)
         return 2
+
+    labels = variant_labels(html, variants)
+    args._labels = labels  # threaded through to helpers
 
     if args.json:
         json.dump(doc, sys.stdout, indent=1)
@@ -165,8 +172,7 @@ def _print_pobbin(code):
 
 
 def _run_merge(variants, slug, args, pob):
-    titles = [f'Variant {i} ({len(v.get("passiveTree", {}).get("mainTree", {}).get("selectedSlugs", []))}n)'
-              for i, v in enumerate(variants)]
+    titles = [args._labels[i] or f'Variant {i}' for i in range(len(variants))]
     try:
         meta = convert_merged(variants, pob=pob, class_override=args.cls,
                               ascendancy_override=args.ascendancy,

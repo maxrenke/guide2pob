@@ -83,20 +83,55 @@ def parse_build(html):
 
 
 def load_build(source):
-    """Load a build from a Mobalytics URL or a local HTML/JSON file."""
+    """Load a build from a Mobalytics URL or a local HTML/JSON file.
+
+    Returns ``(doc, html)`` where ``html`` is the page source (or ``None`` for
+    pure JSON inputs). Keeping the HTML around lets callers pull display-only
+    bits like variant tab labels that aren't in the embedded build state.
+    """
     if source.startswith('http://') or source.startswith('https://'):
-        return parse_build(fetch_html(source))
+        html = fetch_html(source)
+        return parse_build(html), html
     text = open(source, encoding='utf-8').read()
     if source.endswith('.json'):
         data = json.loads(text)
-        # Accept either a raw document or a full preloaded-state dump.
         if 'buildVariants' in data:
-            return data
+            return data, None
         doc = _find_build_document(data)
         if doc:
-            return doc
+            return doc, None
         raise ScrapeError("JSON file has no build document")
-    return parse_build(text)
+    return parse_build(text), text
+
+
+def variant_labels(html, variants):
+    """Return display labels for build variants, scraped from tab elements.
+
+    Mobalytics renders each variant as a React-Aria tab whose label is the
+    first text node after the opening tag. The labels aren't in the build
+    JSON, so we read them from the rendered HTML.
+    """
+    if not html:
+        return [None] * len(variants)
+    out = []
+    for v in variants:
+        vid = v.get('id')
+        if not vid:
+            out.append(None)
+            continue
+        m = re.search(r'data-key="' + re.escape(str(vid)) + r'"', html)
+        if not m:
+            out.append(None)
+            continue
+        segment = html[m.start():m.start() + 4000]
+        for text in re.findall(r'>([^<>]+?)<', segment):
+            t = text.strip()
+            if t and len(t) <= 40:
+                out.append(t)
+                break
+        else:
+            out.append(None)
+    return out
 
 
 def build_variants(doc):

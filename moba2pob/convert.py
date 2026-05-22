@@ -16,7 +16,7 @@ import base64
 import html as _html
 from collections import Counter
 
-from .poe2data import resolve_class, CLASSES
+from .poe2data import resolve_class
 
 # Mobalytics equipment slot -> PoB2 item slot.
 _SLOT_MAP = {
@@ -117,6 +117,12 @@ def _common_item(slot):
 
 
 def _item_text(slot, pob):
+    """Render a Mobalytics equipment slot as Path of Building item text.
+
+    Section dividers (``--------``) and an ``Item Level`` line match the
+    structure PoB's Item:ParseRaw expects, which is also what pobb.in's
+    renderer reads to display the item list.
+    """
     ci = _common_item(slot)
     if not ci:
         return None
@@ -128,26 +134,28 @@ def _item_text(slot, pob):
         lines.append(base or name)
     else:
         lines.append(name)  # Mobalytics reports rares by base type
+    lines += ['--------', 'Item Level: 82', '--------']
     implicits = ci.get('implicitDescriptions') or []
     lines.append('Implicits: %d' % len(implicits))
     lines += [d['description'] for d in implicits]
-    lines += [d['description'] for d in (ci.get('explicitDescriptions') or [])]
+    explicits = [d['description'] for d in (ci.get('explicitDescriptions') or [])]
+    if explicits:
+        if implicits:
+            lines.append('--------')
+        lines += explicits
     return '\n'.join(lines)
 
 
 # -- XML components -------------------------------------------------------
-def _ascend_name(class_name, ascend_id):
-    if ascend_id and class_name in CLASSES:
-        ascs = CLASSES[class_name]['ascendancies']
-        if 1 <= ascend_id <= len(ascs):
-            return ascs[ascend_id - 1]
-    return 'None'
-
-
-def _spec_xml(variant, class_id, ascend_id, tree_version, title=None):
-    attrs = ('treeVersion="%s" classId="%d" ascendClassId="%d" nodes="%s" '
-             'masteryEffects=""' % (tree_version, class_id, ascend_id,
-                                    ','.join(_tree_nodes(variant))))
+def _spec_xml(variant, cls_info, tree_version, title=None):
+    """Build the <Spec> element from a resolve_class() result."""
+    attrs = (
+        'treeVersion="%s" classId="%d" ascendClassId="%d" '
+        'classInternalId="%d" ascendancyInternalId="%s" '
+        'secondaryAscendClassId="0" nodes="%s" masteryEffects=""'
+    ) % (tree_version, cls_info['class_id'], cls_info['ascend_id'],
+         cls_info['class_internal_id'], _esc(cls_info['ascend_internal_id']),
+         ','.join(_tree_nodes(variant)))
     if title:
         attrs = 'title="%s" %s' % (_esc(title), attrs)
     return '<Spec %s>\n</Spec>' % attrs
@@ -187,14 +195,17 @@ def _itemset_xml(variant, pob, set_id, start_item_id, title=None):
     return items, head + '\n' + '\n'.join(slots) + '\n</ItemSet>', iid
 
 
-def _document(class_name, ascend_id, level, specs, skillsets,
-              all_items, itemsets):
+def _document(cls_info, level, specs, skillsets, all_items, itemsets):
     return '\n'.join([
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<PathOfBuilding>',
-        '<Build level="%d" className="%s" ascendClassName="%s" '
+        # targetVersion="0_1" marks this as a Path of Exile 2 build; without
+        # it pobb.in / PoB treat the build as legacy PoE1 and the passive
+        # tree fails to render.
+        '<Build targetVersion="0_1" level="%d" className="%s" ascendClassName="%s" '
         'mainSocketGroup="1" viewMode="TREE">' % (
-            level, _esc(class_name), _esc(_ascend_name(class_name, ascend_id))),
+            level, _esc(cls_info['class_name']),
+            _esc(cls_info['ascend_name'])),
         # A child element is required for stricter parsers (e.g. pobb.in);
         # Path of Building recalculates all stats on import regardless.
         '<PlayerStat stat="Level" value="%d"/>' % level,
@@ -223,32 +234,30 @@ def encode(xml):
 # -- public API -----------------------------------------------------------
 def _resolve(variant, pob, class_override, ascendancy_override):
     ascendancy = ascendancy_override or detect_ascendancy(variant, pob)
-    class_name, class_id, ascend_id = resolve_class(class_override, ascendancy)
-    detected = bool(ascendancy and not ascendancy_override)
-    return class_name, class_id, ascend_id, detected
+    info = resolve_class(class_override, ascendancy)
+    info['detected'] = bool(ascendancy and not ascendancy_override)
+    return info
 
 
 def convert(variant, pob=None, class_override=None,
             ascendancy_override=None, level=90, title=None):
     """Convert one build variant into a standalone build code."""
-    class_name, class_id, ascend_id, detected = _resolve(
-        variant, pob, class_override, ascendancy_override)
+    info = _resolve(variant, pob, class_override, ascendancy_override)
     tree_version = pob.tree_version if pob else '0_4'
 
-    spec = _spec_xml(variant, class_id, ascend_id, tree_version, title)
+    spec = _spec_xml(variant, info, tree_version, title)
     skillset = _skillset_xml(variant, pob, 1, title)
     items, itemset, _ = _itemset_xml(variant, pob, 1, 1, title)
-    xml = _document(class_name, ascend_id, level, [spec], [skillset],
-                    items, [itemset])
+    xml = _document(info, level, [spec], [skillset], items, [itemset])
     return {
         'code': encode(xml),
         'xml': xml,
-        'class': class_name,
-        'ascendancy': _ascend_name(class_name, ascend_id),
+        'class': info['class_name'],
+        'ascendancy': info['ascend_name'],
         'tree_version': tree_version,
         'node_count': len(_tree_nodes(variant)),
         'skill_count': len(_skill_groups(variant)),
-        'detected_ascendancy': detected,
+        'detected_ascendancy': info['detected'],
     }
 
 
@@ -264,32 +273,28 @@ def convert_merged(variants, pob=None, class_override=None,
     titles = titles or [f'Variant {i}' for i in range(len(variants))]
 
     # Build-wide class/ascendancy comes from the first variant.
-    class_name, class_id, ascend_id, detected = _resolve(
-        variants[0], pob, class_override, ascendancy_override)
+    head = _resolve(variants[0], pob, class_override, ascendancy_override)
     tree_version = pob.tree_version if pob else '0_4'
 
     specs, skillsets, all_items, itemsets = [], [], [], []
     next_id = 1
     for i, variant in enumerate(variants):
-        # Each spec may have its own ascendancy, but class is build-wide.
-        _, c_id, a_id, _ = _resolve(variant, pob, class_override,
-                                    ascendancy_override)
-        specs.append(_spec_xml(variant, c_id, a_id, tree_version, titles[i]))
+        info = _resolve(variant, pob, class_override, ascendancy_override)
+        specs.append(_spec_xml(variant, info, tree_version, titles[i]))
         skillsets.append(_skillset_xml(variant, pob, i + 1, titles[i]))
         items, itemset, next_id = _itemset_xml(
             variant, pob, i + 1, next_id, titles[i])
         all_items += items
         itemsets.append(itemset)
 
-    xml = _document(class_name, ascend_id, level, specs, skillsets,
-                    all_items, itemsets)
+    xml = _document(head, level, specs, skillsets, all_items, itemsets)
     return {
         'code': encode(xml),
         'xml': xml,
-        'class': class_name,
-        'ascendancy': _ascend_name(class_name, ascend_id),
+        'class': head['class_name'],
+        'ascendancy': head['ascend_name'],
         'tree_version': tree_version,
         'variant_count': len(variants),
         'node_count': sum(len(_tree_nodes(v)) for v in variants),
-        'detected_ascendancy': detected,
+        'detected_ascendancy': head['detected'],
     }
