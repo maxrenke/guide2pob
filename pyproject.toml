@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "moba2pob"
+version = "0.1.0"
+description = "Convert Mobalytics PoE2 build guides into Path of Building import codes"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Maxwell Renke" }]
+keywords = ["path-of-exile", "poe2", "path-of-building", "mobalytics"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+]
+dependencies = []
+
+[project.optional-dependencies]
+analyze = []
+
+[project.scripts]
+moba2pob = "moba2pob.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/maxrenke/moba2pob"
+Issues = "https://github.com/maxrenke/moba2pob/issues"
+
+[tool.setuptools]
+packages = ["moba2pob"]

@@ -1,0 +1,2 @@
+# moba2pob runs on the Python 3.9+ standard library only - no dependencies.
+# LLM analysis (--analyze) talks to Anthropic or Ollama over plain HTTP.
