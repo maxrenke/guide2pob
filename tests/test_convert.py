@@ -84,8 +84,9 @@ class TestConvertSingle(unittest.TestCase):
         self.assertIn('<Sockets>', meta['xml'])
 
     def test_jewel_item_in_items_section(self):
+        # PoE2 jewel base names have no " Jewel" suffix.
         meta = convert(self.variant, ascendancy_override='Lich')
-        self.assertIn('Sapphire Jewel', meta['xml'])
+        self.assertIn('Sapphire', meta['xml'])
 
 
 class TestItemText(unittest.TestCase):
@@ -215,13 +216,15 @@ class TestEnumerateSlot(unittest.TestCase):
 class TestJewelText(unittest.TestCase):
 
     def test_known_slug_maps_to_base_name(self):
-        self.assertEqual(_jewel_base_name('jewel-jewelint'), 'Sapphire Jewel')
-        self.assertEqual(_jewel_base_name('jewel-jewelstr'), 'Ruby Jewel')
-        self.assertEqual(_jewel_base_name('jewel-jeweldex'), 'Emerald Jewel')
+        # PoE2 uses short names without the " Jewel" suffix.
+        self.assertEqual(_jewel_base_name('jewel-jewelint'), 'Sapphire')
+        self.assertEqual(_jewel_base_name('jewel-jewelstr'), 'Ruby')
+        self.assertEqual(_jewel_base_name('jewel-jeweldex'), 'Emerald')
 
     def test_unknown_slug_falls_back_gracefully(self):
+        # Any unknown slug returns the Diamond fallback (safest generic base).
         result = _jewel_base_name('jewel-jewelstrdexint')
-        self.assertIn('Jewel', result)
+        self.assertEqual(result, 'Diamond')
 
     def test_rare_jewel_text_format(self):
         jewel = {'isUnique': False, 'jewelSlug': 'jewel-jewelint',
@@ -229,8 +232,8 @@ class TestJewelText(unittest.TestCase):
         text = _jewel_text(jewel, pob=None)
         lines = text.split('\n')
         self.assertEqual(lines[0], 'Rarity: RARE')
-        self.assertEqual(lines[1], 'Sapphire Jewel')
-        self.assertEqual(lines[2], 'Sapphire Jewel')
+        self.assertEqual(lines[1], 'Sapphire')
+        self.assertEqual(lines[2], 'Sapphire')
         self.assertIn('Item Level: 82', lines)
         self.assertIn('Implicits: 0', lines)
 
@@ -251,7 +254,7 @@ class TestPriorityNotes(unittest.TestCase):
     def test_missing_priority_list_returns_empty_string(self):
         self.assertEqual(_priority_notes({}), '')
 
-    def test_formats_priority_list(self):
+    def test_formats_ascendancy_priority_list(self):
         variant = {'passiveTree': {'ascendancyTree': {'priorityList': [
             {'slug': 'node-1', 'name': 'Soulless Form'},
             {'slug': 'node-2', 'name': 'Eternal Life'},
@@ -260,6 +263,39 @@ class TestPriorityNotes(unittest.TestCase):
         self.assertIn('Ascendancy Priority:', result)
         self.assertIn('1. Soulless Form', result)
         self.assertIn('2. Eternal Life', result)
+
+    def test_formats_equipment_priority_list(self):
+        variant = {'equipment': {'priorityList': [
+            {'name': 'Atziri\'s Disdain', 'type': 'helmet'},
+            {'name': 'Snakepit', 'type': 'rightRing'},
+        ]}}
+        result = _priority_notes(variant)
+        self.assertIn('Equipment Priority:', result)
+        self.assertIn("1. Atziri's Disdain (helmet)", result)
+        self.assertIn('2. Snakepit (rightRing)', result)
+
+    def test_formats_gem_priority_list_with_display_names(self):
+        variant = {
+            'skillGems': {
+                'gems': [
+                    {'activeSkill': {'gemSlug': 'contagionplayer',
+                                     'name': 'Contagion'},
+                     'subSkills': []},
+                ],
+                'priorityGems': [
+                    {'name': 'Unleash', 'gemSlug': 'supportunleashplayer',
+                     'parentActiveSkillGemSlug': 'contagionplayer'},
+                    {'name': 'Chain II', 'gemSlug': 'supportchainplayertwo',
+                     'parentActiveSkillGemSlug': 'contagionplayer'},
+                ],
+            },
+        }
+        result = _priority_notes(variant)
+        self.assertIn('Gem Priorities:', result)
+        # Parent slug should resolve to display name "Contagion" not the raw slug.
+        self.assertIn('Contagion:', result)
+        self.assertIn('Unleash', result)
+        self.assertIn('Chain II', result)
 
 
 class TestTreeNodes(unittest.TestCase):
@@ -282,6 +318,43 @@ class TestGemNameFallback(unittest.TestCase):
     def test_strips_support_prefix(self):
         self.assertEqual(
             gem_name('supportunleashplayer', pob=None), 'Unleash')
+
+
+class TestEmptyJewelSocket(unittest.TestCase):
+    """Allocated jewel-socket nodes with no jewel must emit itemId="0" sockets.
+
+    Without this PoB2 crashes in PassiveSpec.lua:1079 when it tries to look up
+    the jewel for a containJewelSocket node that has no <Socket> entry.
+    """
+
+    class _FakePob:
+        """Minimal PoBData stand-in that reports node-9999 as a jewel socket."""
+        jewel_socket_nodes = {'9999'}
+        tree_version = '0_4'
+        gems = {}
+        unique_bases = {}
+
+    def test_empty_allocated_socket_gets_item_id_zero(self):
+        variant = sample_variant()
+        # Allocate a jewel-socket node but give it no jewel.
+        variant['passiveTree']['mainTree']['selectedSlugs'].append('node-9999')
+        pob = self._FakePob()
+        meta = convert(variant, pob=pob, ascendancy_override='Lich')
+        self.assertIn('<Socket nodeId="9999" itemId="0"/>', meta['xml'])
+
+    def test_filled_socket_does_not_get_extra_empty_entry(self):
+        variant = sample_variant()
+        # node-7960 already has a jewel in sample_variant.
+        pob = self._FakePob()
+        pob.jewel_socket_nodes = {'7960'}
+        meta = convert(variant, pob=pob, ascendancy_override='Lich')
+        # Should appear exactly once (the filled one), NOT with itemId="0".
+        self.assertNotIn('<Socket nodeId="7960" itemId="0"/>', meta['xml'])
+        # The filled socket has a non-zero item id.
+        import re
+        sockets = re.findall(r'<Socket nodeId="7960" itemId="(\d+)"', meta['xml'])
+        self.assertEqual(len(sockets), 1)
+        self.assertNotEqual(sockets[0], '0')
 
 
 class TestWeaponSetSwap(unittest.TestCase):

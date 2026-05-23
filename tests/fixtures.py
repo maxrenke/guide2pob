@@ -12,6 +12,12 @@ def sample_variant():
         'id': 'sample-id',
         'genericBuilder': {'slots': None},
         'equipment': {
+            'priorityList': [
+                {'name': 'Withered Wand', 'type': 'mainHand',
+                 'slug': 'weapon-wand', 'description': None, 'notes': None},
+                {'name': "Atziri's Disdain", 'type': 'helmet',
+                 'slug': 'unique-helmet', 'description': None, 'notes': None},
+            ],
             'mainHand': {
                 'set1': {
                     'commonItem': {
@@ -47,6 +53,15 @@ def sample_variant():
                     'subSkills': [
                         {'gemSlug': 'supportunleashplayer'},
                     ],
+                },
+            ],
+            'priorityGems': [
+                {
+                    'gemSlug': 'supportunleashplayer',
+                    'name': 'Unleash',
+                    'gemType': 'SUPPORT',
+                    'description': None,
+                    'parentActiveSkillGemSlug': 'contagionplayer',
                 },
             ],
         },
