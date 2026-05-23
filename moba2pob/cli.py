@@ -10,7 +10,6 @@ from .scrape import (
     load_build, build_variants, variant_labels, slug_from_url, ScrapeError)
 from .convert import convert, convert_merged
 from .pobdata import find_install, PoBData
-from .analyze import summarize, analyze, AnalysisError
 from .upload import upload_pobbin, UploadError
 
 
@@ -52,14 +51,6 @@ def _build_parser():
                    help='Path of Building (PoE2) install directory')
     p.add_argument('--no-pob', action='store_true',
                    help='ignore any Path of Building install')
-    p.add_argument('--analyze', action='store_true',
-                   help='run an LLM analysis of the build')
-    p.add_argument('--provider', default='anthropic',
-                   choices=['anthropic', 'ollama', 'none'],
-                   help='LLM provider for --analyze (default: anthropic)')
-    p.add_argument('--model', help='LLM model name')
-    p.add_argument('--api-key', help='API key (else uses ANTHROPIC_API_KEY)')
-    p.add_argument('--ollama-url', help='Ollama base URL')
     p.add_argument('--version', action='version',
                    version=f'moba2pob {__version__}')
     return p
@@ -167,9 +158,6 @@ def main(argv=None):
         if args.upload:
             _print_pobbin(meta['code'], open_in_pob=args.open)
 
-        if args.analyze:
-            _run_analysis(variants[idx], meta, pob, args)
-
     return rc
 
 
@@ -232,19 +220,6 @@ def _run_merge(variants, slug, args, pob, labels, notes=None):
     if args.upload:
         _print_pobbin(meta['code'], open_in_pob=args.open)
     return 0
-
-
-def _run_analysis(variant, meta, pob, args):
-    summary = summarize(variant, meta, pob)
-    try:
-        result = analyze(summary, provider=args.provider, model=args.model,
-                         api_key=args.api_key, base_url=args.ollama_url)
-    except AnalysisError as e:
-        print(f'analysis skipped: {e}', file=sys.stderr)
-        return
-    if result:
-        print('\n--- build analysis ---', file=sys.stderr)
-        print(result, file=sys.stderr)
 
 
 def _write(path, text):

@@ -18,8 +18,6 @@ import code** from it.
 - **Auto-detect** class and ascendancy from the allocated passive nodes.
 - **Path of Building integration** (optional) - uses a local PoB2 install for
   accurate gem names, unique item base types, and the current tree version.
-- **LLM analysis** (optional) - get a written build review from Claude
-  (Anthropic API) or a local model via Ollama.
 - Pure Python 3.9+ standard library. No dependencies.
 
 ## Install
@@ -75,9 +73,6 @@ Paste the resulting code into Path of Building 2:
 | `--level N` | Character level to record (default: 90). |
 | `--pob-path DIR` | Path of Building (PoE2) install directory. |
 | `--no-pob` | Ignore any Path of Building install. |
-| `--analyze` | Run an LLM analysis of the build. |
-| `--provider` | `anthropic` (default), `ollama`, or `none`. |
-| `--model` / `--api-key` / `--ollama-url` | LLM configuration. |
 
 ### Path of Building integration
 
@@ -90,19 +85,6 @@ data files for accurate results. Detection order:
 
 Without an install, conversion still works but gem names are approximate and
 you must pass `--ascendancy` so the class can be resolved.
-
-### LLM analysis
-
-```sh
-# Claude (Anthropic API)
-export ANTHROPIC_API_KEY=sk-ant-...
-moba2pob <url> --analyze --provider anthropic
-
-# Local model via Ollama
-moba2pob <url> --analyze --provider ollama --model qwen2.5-coder:14b
-```
-
-The analysis is informational - it never changes the generated code.
 
 ## How it works
 
