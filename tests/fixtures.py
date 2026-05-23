@@ -54,8 +54,22 @@ def sample_variant():
             'mainTree': {'selectedSlugs': ['node-12345']},
             'ascendancyTree': {
                 'selectedSlugs': ['node-23710', 'node-33141'],  # Lich nodes
-                'priorityList': [],
+                'priorityList': [
+                    {'slug': 'node-23710', 'name': 'Soulless Form',
+                     'type': 'ASCENDANCY_LARGE'},
+                    {'slug': 'node-33141', 'name': 'Eternal Life',
+                     'type': 'ASCENDANCY_LARGE'},
+                ],
             },
+            'jewels': [
+                {
+                    'isUnique': False,
+                    'jewelSlug': 'jewel-jewelint',
+                    'nodeSlug': 'node-7960',
+                    'prefixSlugs': ['IncreasedEnergyShieldPercent2'],
+                    'suffixSlugs': ['JewelManaRegeneration'],
+                },
+            ],
         },
         'atlasTree': None,
     }

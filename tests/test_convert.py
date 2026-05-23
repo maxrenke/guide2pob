@@ -6,7 +6,8 @@ import zlib
 from moba2pob.convert import (
     convert, convert_merged, encode, _item_text, gem_name, _tree_nodes,
     _common_item, _attribute_overrides, _weapon_set_tree_nodes,
-    _humanize_rune)
+    _humanize_rune, _jewel_text, _jewel_base_name, _enumerate_slot,
+    _priority_notes)
 from tests.fixtures import sample_variant
 
 
@@ -62,6 +63,29 @@ class TestConvertSingle(unittest.TestCase):
         self.assertEqual(self.meta['ascendancy'], 'Lich')
         self.assertEqual(self.meta['node_count'], 3)  # 1 main + 2 ascendancy
         self.assertEqual(self.meta['skill_count'], 1)
+
+    def test_notes_element_present(self):
+        meta = convert(self.variant, ascendancy_override='Lich',
+                       notes='My build notes')
+        self.assertIn('<Notes>', meta['xml'])
+        self.assertIn('My build notes', meta['xml'])
+
+    def test_priority_list_appended_to_notes(self):
+        # sample_variant has a non-empty priorityList, so even with no
+        # explicit notes the <Notes> element should mention priorities.
+        meta = convert(self.variant, ascendancy_override='Lich')
+        self.assertIn('Ascendancy Priority', meta['xml'])
+        self.assertIn('Soulless Form', meta['xml'])
+
+    def test_jewel_socket_in_spec(self):
+        # sample_variant has one jewel at node-7960.
+        meta = convert(self.variant, ascendancy_override='Lich')
+        self.assertIn('<Socket nodeId="7960"', meta['xml'])
+        self.assertIn('<Sockets>', meta['xml'])
+
+    def test_jewel_item_in_items_section(self):
+        meta = convert(self.variant, ascendancy_override='Lich')
+        self.assertIn('Sapphire Jewel', meta['xml'])
 
 
 class TestItemText(unittest.TestCase):
@@ -148,6 +172,96 @@ class TestPassiveTreeExtras(unittest.TestCase):
             'Soulcore Runeenhancegreater')
 
 
+class TestEnumerateSlot(unittest.TestCase):
+
+    def test_single_item_slot(self):
+        slot = {'commonItem': {'name': 'helmet', 'isUnique': False,
+                               'explicitDescriptions': []}}
+        results = list(_enumerate_slot(slot))
+        self.assertEqual(len(results), 1)
+        item, runes, anoint, ws_idx = results[0]
+        self.assertEqual(item['name'], 'helmet')
+        self.assertEqual(ws_idx, 0)
+
+    def test_weapon_set_yields_both(self):
+        slot = {
+            'set1': {'commonItem': {'name': 'Wand', 'isUnique': False,
+                                    'explicitDescriptions': []}},
+            'set2': {'commonItem': {'name': 'Staff', 'isUnique': False,
+                                    'explicitDescriptions': []}},
+        }
+        results = list(_enumerate_slot(slot))
+        self.assertEqual(len(results), 2)
+        self.assertEqual(results[0][0]['name'], 'Wand')
+        self.assertEqual(results[0][3], 0)
+        self.assertEqual(results[1][0]['name'], 'Staff')
+        self.assertEqual(results[1][3], 1)
+
+    def test_weapon_set_one_empty(self):
+        slot = {
+            'set1': {'commonItem': {'name': 'Wand', 'isUnique': False,
+                                    'explicitDescriptions': []}},
+            'set2': None,
+        }
+        results = list(_enumerate_slot(slot))
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0][0]['name'], 'Wand')
+
+    def test_empty_slot_yields_nothing(self):
+        self.assertEqual(list(_enumerate_slot(None)), [])
+        self.assertEqual(list(_enumerate_slot({})), [])
+
+
+class TestJewelText(unittest.TestCase):
+
+    def test_known_slug_maps_to_base_name(self):
+        self.assertEqual(_jewel_base_name('jewel-jewelint'), 'Sapphire Jewel')
+        self.assertEqual(_jewel_base_name('jewel-jewelstr'), 'Ruby Jewel')
+        self.assertEqual(_jewel_base_name('jewel-jeweldex'), 'Emerald Jewel')
+
+    def test_unknown_slug_falls_back_gracefully(self):
+        result = _jewel_base_name('jewel-jewelstrdexint')
+        self.assertIn('Jewel', result)
+
+    def test_rare_jewel_text_format(self):
+        jewel = {'isUnique': False, 'jewelSlug': 'jewel-jewelint',
+                 'nodeSlug': 'node-7960'}
+        text = _jewel_text(jewel, pob=None)
+        lines = text.split('\n')
+        self.assertEqual(lines[0], 'Rarity: RARE')
+        self.assertEqual(lines[1], 'Sapphire Jewel')
+        self.assertEqual(lines[2], 'Sapphire Jewel')
+        self.assertIn('Item Level: 82', lines)
+        self.assertIn('Implicits: 0', lines)
+
+    def test_unique_jewel_uses_unique_rarity(self):
+        jewel = {'isUnique': True, 'jewelSlug': 'jewel-voices',
+                 'jewelName': 'The Voices', 'nodeSlug': 'node-1000'}
+        text = _jewel_text(jewel, pob=None)
+        self.assertTrue(text.startswith('Rarity: UNIQUE'))
+        self.assertIn('The Voices', text)
+
+
+class TestPriorityNotes(unittest.TestCase):
+
+    def test_empty_priority_list_returns_empty_string(self):
+        variant = {'passiveTree': {'ascendancyTree': {'priorityList': []}}}
+        self.assertEqual(_priority_notes(variant), '')
+
+    def test_missing_priority_list_returns_empty_string(self):
+        self.assertEqual(_priority_notes({}), '')
+
+    def test_formats_priority_list(self):
+        variant = {'passiveTree': {'ascendancyTree': {'priorityList': [
+            {'slug': 'node-1', 'name': 'Soulless Form'},
+            {'slug': 'node-2', 'name': 'Eternal Life'},
+        ]}}}
+        result = _priority_notes(variant)
+        self.assertIn('Ascendancy Priority:', result)
+        self.assertIn('1. Soulless Form', result)
+        self.assertIn('2. Eternal Life', result)
+
+
 class TestTreeNodes(unittest.TestCase):
 
     def test_filters_non_numeric(self):
@@ -168,6 +282,31 @@ class TestGemNameFallback(unittest.TestCase):
     def test_strips_support_prefix(self):
         self.assertEqual(
             gem_name('supportunleashplayer', pob=None), 'Unleash')
+
+
+class TestWeaponSetSwap(unittest.TestCase):
+
+    def test_set2_weapon_becomes_swap_slot(self):
+        variant = sample_variant()
+        # Add a weapon set 2 item to mainHand.
+        variant['equipment']['mainHand']['set2'] = {
+            'commonItem': {
+                'name': 'Plague Staff',
+                'isUnique': False,
+                'itemClassSlug': 'staff',
+                'explicitDescriptions': [{'description': '+50 to Chaos Damage'}],
+            }
+        }
+        meta = convert(variant, ascendancy_override='Lich')
+        self.assertIn('Weapon 1 Swap', meta['xml'])
+        self.assertIn('Plague Staff', meta['xml'])
+        self.assertIn('useSecondWeaponSet="true"', meta['xml'])
+
+    def test_no_set2_weapon_no_swap_slot(self):
+        variant = sample_variant()
+        meta = convert(variant, ascendancy_override='Lich')
+        self.assertNotIn('Weapon 1 Swap', meta['xml'])
+        self.assertIn('useSecondWeaponSet="false"', meta['xml'])
 
 
 class TestConvertMerged(unittest.TestCase):

@@ -225,17 +225,40 @@ def _item_text(item, runes=(), anointment=None, pob=None):
 
 
 # -- jewels ---------------------------------------------------------------
+# Mobalytics jewelSlug -> PoB2 base type name (matched from icon filenames).
+_JEWEL_BASE_NAMES = {
+    'jewel-jewelstr':       'Ruby Jewel',
+    'jewel-jeweldex':       'Emerald Jewel',
+    'jewel-jewelint':       'Sapphire Jewel',
+    'jewel-jewelstrdex':    'Viridian Jewel',
+    'jewel-jewelstrint':    'Cobalt Jewel',
+    'jewel-jeweldexint':    'Prismatic Jewel',
+    'jewel-jewelnone':      'Jewel',
+}
+
+
+def _jewel_base_name(slug):
+    """Map a Mobalytics jewel slug to a human-readable PoB base type."""
+    if slug in _JEWEL_BASE_NAMES:
+        return _JEWEL_BASE_NAMES[slug]
+    # Fallback: strip prefix and prettify (e.g. 'jewel-jewelstrdexint' -> 'Strdexint Jewel').
+    core = (slug or 'jewel').replace('jewel-jewel', '').replace('jewel-', '')
+    return (core.title() + ' Jewel') if core else 'Jewel'
+
+
 def _jewel_text(jewel, pob):
     """Render a Mobalytics jewel entry as PoB item text."""
-    name = jewel.get('jewelName') or 'Jewel'
+    slug = jewel.get('jewelSlug') or ''
     if jewel.get('isUnique'):
-        name = name.replace('jewel-', '').replace('_', ' ').title()
+        # Unique jewels: try to derive a readable name from the slug.
+        name = (jewel.get('jewelName') or slug).replace('jewel-', '') \
+            .replace('_', '-').replace('-', ' ').title() or 'Jewel'
+        base = name
         rarity = 'UNIQUE'
     else:
-        name = (jewel.get('jewelSlug') or 'Jewel').replace('jewel-', '') \
-            .replace('_', ' ').title()
+        base = _jewel_base_name(slug)
+        name = base
         rarity = 'RARE'
-    base = name
     lines = [
         'Rarity: ' + rarity,
         name,
@@ -250,6 +273,23 @@ def _jewel_text(jewel, pob):
 
 def _jewels(variant):
     return (variant.get('passiveTree') or {}).get('jewels') or []
+
+
+# -- priority list --------------------------------------------------------
+def _priority_notes(variant):
+    """Return a formatted string listing the ascendancy node priority order.
+
+    Returns an empty string if the variant has no priority list.
+    """
+    pl = ((variant.get('passiveTree') or {})
+          .get('ascendancyTree') or {}).get('priorityList') or []
+    if not pl:
+        return ''
+    lines = ['Ascendancy Priority:']
+    for i, entry in enumerate(pl, 1):
+        name = entry.get('name') or entry.get('slug', '')
+        lines.append(f'  {i}. {name}')
+    return '\n'.join(lines)
 
 
 # -- XML components -------------------------------------------------------
@@ -424,8 +464,10 @@ def convert(variant, pob=None, class_override=None,
     parts = _build_variant_parts(
         variant, pob, info, set_id=1, start_item_id=1,
         tree_version=tree_version, title=title)
+    full_notes = '\n\n'.join(filter(None, [notes, _priority_notes(variant)]))
     xml = _document(info, level, [parts['spec']], [parts['skillset']],
-                    parts['items'], [parts['itemset']], notes=notes)
+                    parts['items'], [parts['itemset']],
+                    notes=full_notes or None)
     return {
         'code': encode(xml),
         'xml': xml,
@@ -476,8 +518,14 @@ def convert_merged(variants, pob=None, class_override=None,
         itemsets.append(parts['itemset'])
         next_id = parts['next_id']
 
+    priority_parts = []
+    for title_str, variant in zip(titles, variants):
+        p = _priority_notes(variant)
+        if p:
+            priority_parts.append(f'=== {title_str} ===\n{p}')
+    full_notes = '\n\n'.join(filter(None, [notes] + priority_parts))
     xml = _document(head, level, specs, skillsets, all_items, itemsets,
-                    notes=notes)
+                    notes=full_notes or None)
     return {
         'code': encode(xml),
         'xml': xml,
