@@ -34,7 +34,7 @@ def _class_from_pobcode(doc):
     try:
         # If it's a pobb.in URL, fetch the actual code first.
         if code.startswith('http'):
-            m = re.search(r'pobb\.in/([A-Za-z0-9_-]+)$', code.strip())
+            m = re.search(r'pobb\.in/([A-Za-z0-9_-]+)/?$', code.strip())
             if not m:
                 return None
             req = urllib.request.Request(

@@ -349,6 +349,9 @@ def convert(doc, variant_idx=None, notes=None, level=90,
         cls_name, asc_name = _class_info_from_xml(xml)
         if notes:
             inject = '<Notes>%s</Notes>\n' % _esc(notes)
+            # Remove any existing <Notes> element before injecting so we don't
+            # produce two <Notes> blocks when the original pobCode already has one.
+            xml = re.sub(r'<Notes>.*?</Notes>\s*', '', xml, flags=re.S)
             xml = xml.replace('</PathOfBuilding>', inject + '</PathOfBuilding>', 1)
         return {
             'code': encode(xml),
