@@ -1,9 +1,13 @@
 """Command-line interface for moba2pob."""
 import os
 import sys
+import re
 import json
+import zlib
+import base64
 import argparse
 import subprocess
+import urllib.request
 
 from . import __version__
 from .scrape import (
@@ -13,8 +17,35 @@ from .convert_poe1 import (
     convert as convert_poe1,
     convert_merged as convert_merged_poe1,
 )
-from .pobdata import find_install, PoBData
+from .pobdata import find_install, find_builds_dir, find_exe, PoBData
 from .upload import upload_pobbin, UploadError
+
+
+def _class_from_pobcode(doc):
+    """Try to extract the ascendancy name from a doc-level pobCode.
+
+    Returns the ascendancy string (e.g. 'Amazon') or None on failure.
+    The pobCode may be a raw base64+zlib blob or a pobb.in URL.
+    """
+    code = (doc or {}).get('pobCode') or ''
+    if not code:
+        return None
+    try:
+        # If it's a pobb.in URL, fetch the actual code first.
+        if code.startswith('http'):
+            m = re.search(r'pobb\.in/([A-Za-z0-9_-]+)$', code.strip())
+            if not m:
+                return None
+            req = urllib.request.Request(
+                f'https://pobb.in/pob/{m.group(1)}',
+                headers={'User-Agent': 'moba2pob'})
+            code = urllib.request.urlopen(req, timeout=10).read().decode().strip()
+        std = code.replace('-', '+').replace('_', '/')
+        xml = zlib.decompress(base64.b64decode(std + '==')).decode()
+        m = re.search(r'ascendClassName="([^"]+)"', xml)
+        return m.group(1) if m and m.group(1) not in ('None', '') else None
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def _detect_game(source):
@@ -31,30 +62,40 @@ def _build_parser():
         prog='moba2pob',
         description='Convert a Mobalytics PoE build guide into a '
                     'Path of Building import code.')
-    p.add_argument('source',
-                   help='Mobalytics build URL, or a local .html/.json file')
+    p.add_argument('source', nargs='+',
+                   help='one or more Mobalytics build URLs or local .html/.json files')
     p.add_argument('--game', choices=['poe1', 'poe2'],
                    help='game version (default: auto-detected from URL)')
-    p.add_argument('--variant', default=None,
-                   help="variant index to convert, or 'all'; "
-                        "for PoE1 omit to use the embedded pobCode (best quality)")
-    p.add_argument('--merge', action='store_true',
+    p.add_argument('--variant', default='all',
+                   help="variant index to convert, or 'all' (default: all); "
+                        "for PoE1 pass a specific index to skip the embedded pobCode")
+    p.add_argument('--merge', action='store_true', default=True,
                    help='merge all variants into one build with switchable '
-                        'Tree specs, Item Sets, and Skill Sets')
+                        'Tree specs, Item Sets, and Skill Sets (default: on)')
+    p.add_argument('--no-merge', dest='merge', action='store_false',
+                   help='disable merge; convert each variant separately')
     p.add_argument('--no-reorder', action='store_true',
                    help='keep Mobalytics variant order instead of sorting '
                         'by progression (leveling -> endgame)')
-    p.add_argument('-o', '--out',
-                   help='output file (single variant) or directory (all)')
+    _downloads = os.path.join(os.path.expanduser('~'), 'Downloads')
+    p.add_argument('-o', '--out', default=_downloads,
+                   help='output file (single variant) or directory (all) '
+                        '(default: ~/Downloads)')
     p.add_argument('--xml', action='store_true',
                    help='also write the raw build XML')
+    p.add_argument('--save-pob', action='store_true', default=True,
+                   help='save build XML to Path of Building builds directory (default: on)')
+    p.add_argument('--no-save-pob', dest='save_pob', action='store_false',
+                   help='skip saving to Path of Building builds directory')
     p.add_argument('--upload', action='store_true',
                    help='upload to pobb.in and print a shareable link')
     p.add_argument('-p', '--print-code', action='store_true',
                    help='print the import code to stdout even when -o is set')
-    p.add_argument('--open', action='store_true',
-                   help='after --upload, launch the pob:// or pob2:// link '
-                        'to open the build directly in Path of Building')
+    p.add_argument('--open', action='store_true', default=True,
+                   help='upload to pobb.in and open the build in Path of Building '
+                        '(default: on)')
+    p.add_argument('--no-open', dest='open', action='store_false',
+                   help='disable auto-open in Path of Building')
     p.add_argument('--json', action='store_true',
                    help='dump the scraped build data as JSON and exit')
     p.add_argument('--class', dest='cls', metavar='NAME',
@@ -82,6 +123,13 @@ def _load_pob(args):
               file=sys.stderr)
         return None
     print(f'using Path of Building data: {install}', file=sys.stderr)
+    if args.save_pob:
+        builds_dir = find_builds_dir()
+        if builds_dir:
+            args._pob_builds_dir = builds_dir
+    exe = find_exe(install)
+    if exe:
+        args._pob_exe = exe
     return PoBData(install)
 
 
@@ -117,7 +165,7 @@ def _run_poe2(doc, html, args, slug):
     pob = _load_pob(args)
 
     if args.merge:
-        return _run_merge_poe2(variants, slug, args, pob, labels, notes)
+        return _run_merge_poe2(variants, slug, args, pob, labels, notes, doc=doc)
 
     variant_arg = args.variant if args.variant is not None else '0'
     if variant_arg == 'all':
@@ -152,11 +200,20 @@ def _run_poe2(doc, html, args, slug):
     return rc
 
 
-def _run_merge_poe2(variants, slug, args, pob, labels, notes=None):
+def _run_merge_poe2(variants, slug, args, pob, labels, notes=None, doc=None):
     titles = [labels[i] or f'Variant {i}' for i in range(len(variants))]
+    asc_override = args.ascendancy
+    cls_override = args.cls
+    # If class can't be detected from any variant's tree, fall back to the
+    # doc-level pobCode (some builds have null ascendancy trees).
+    if not asc_override and not cls_override:
+        asc_override = _class_from_pobcode(doc) if doc else None
+        if asc_override:
+            print(f'note: class detected from pobCode: {asc_override}',
+                  file=sys.stderr)
     try:
-        meta = convert_merged(variants, pob=pob, class_override=args.cls,
-                              ascendancy_override=args.ascendancy,
+        meta = convert_merged(variants, pob=pob, class_override=cls_override,
+                              ascendancy_override=asc_override,
                               level=args.level, titles=titles,
                               notes=notes,
                               progression_order=not args.no_reorder)
@@ -256,21 +313,41 @@ def _run_merge_poe1(doc, slug, args, labels, notes=None):
 # -- shared output ----------------------------------------------------------
 
 def _output(meta, slug, idx, args, out_dir, game='poe2'):
-    if out_dir:
-        base = os.path.join(out_dir, f'{slug}-v{idx}')
+    # Treat -o <dir> the same as out_dir when the path is/looks like a directory.
+    effective_dir = out_dir
+    effective_file = args.out if args.out else None
+    if effective_file and not effective_dir:
+        if os.path.isdir(effective_file) or effective_file.endswith(('/', '\\')):
+            effective_dir = effective_file
+            effective_file = None
+
+    if effective_dir:
+        os.makedirs(effective_dir, exist_ok=True)
+        suffix = f'-v{idx}' if idx is not None else ''
+        base = os.path.join(effective_dir, f'{slug}{suffix}')
         _write(base + '.txt', meta['code'])
         if args.xml:
             _write(base + '.xml', meta['xml'])
         print(f'wrote {base}.txt', file=sys.stderr)
-    elif args.out:
-        _write(args.out, meta['code'])
+    elif effective_file:
+        _write(effective_file, meta['code'])
         if args.xml:
-            _write(os.path.splitext(args.out)[0] + '.xml', meta['xml'])
-        print(f'wrote {args.out}', file=sys.stderr)
-    if args.print_code or (not args.out and not out_dir):
+            _write(os.path.splitext(effective_file)[0] + '.xml', meta['xml'])
+        print(f'wrote {effective_file}', file=sys.stderr)
+    if args.print_code or (not effective_file and not effective_dir):
         print(meta['code'])
-    if args.upload:
-        _print_pobbin(meta['code'], open_in_pob=args.open, game=game)
+    saved_path = None
+    if getattr(args, '_pob_builds_dir', None) and args.save_pob:
+        suffix = f'-v{idx}' if idx is not None else ''
+        saved_path = os.path.join(args._pob_builds_dir, f'{slug}{suffix}.xml')
+        _write(saved_path, meta['xml'])
+        print(f'saved  {saved_path}', file=sys.stderr)
+    if args.upload or args.open:
+        if args.open and saved_path and getattr(args, '_pob_exe', None):
+            # Signal main() to launch PoB2 once after all sources are done.
+            args._should_open_pob2 = True
+        else:
+            _print_pobbin(meta['code'], open_in_pob=args.open, game=game)
 
 
 def _print_pobbin(code, open_in_pob=False, game='poe2'):
@@ -287,6 +364,19 @@ def _print_pobbin(code, open_in_pob=False, game='poe2'):
     print(f"open PoB: {proto_url}")
     if open_in_pob:
         _open_url(proto_url)
+
+
+def _open_pob2(exe_path):
+    """Launch the PoB2 executable (build appears in the saved list)."""
+    try:
+        if sys.platform == 'win32':
+            os.startfile(exe_path)  # noqa: S606
+        elif sys.platform == 'darwin':
+            subprocess.run(['open', exe_path], check=False)
+        else:
+            subprocess.Popen([exe_path])
+    except OSError as e:
+        print(f'could not launch {exe_path}: {e}', file=sys.stderr)
 
 
 def _open_url(url):
@@ -307,11 +397,11 @@ def _write(path, text):
         f.write(text)
 
 
-def main(argv=None):
-    args = _build_parser().parse_args(argv)
-
+def _process_one(source, args):
+    """Process a single source URL/file. Returns an exit code (0=ok, 1=err, 2=fatal)."""
+    args.source = source  # make source available to helpers that read args.source
     try:
-        doc, html = load_build(args.source)
+        doc, html = load_build(source)
     except ScrapeError as e:
         print(f'error: {e}', file=sys.stderr)
         return 2
@@ -330,14 +420,30 @@ def main(argv=None):
     print(f'build: {name}  ({n} variant{"s" if n != 1 else ""})',
           file=sys.stderr)
 
-    game = args.game or _detect_game(args.source)
+    game = args.game or _detect_game(source)
     print(f'game:  PoE{"1" if game == "poe1" else "2"}', file=sys.stderr)
 
-    slug = slug_from_url(args.source) or 'build'
+    slug = slug_from_url(source) or 'build'
 
     if game == 'poe1':
         return _run_poe1(doc, html, args, slug)
     return _run_poe2(doc, html, args, slug)
+
+
+def main(argv=None):
+    args = _build_parser().parse_args(argv)
+
+    rc = 0
+    for source in args.source:
+        if len(args.source) > 1:
+            print(f'\n--- {source} ---', file=sys.stderr)
+        result = _process_one(source, args)
+        if result and result > rc:
+            rc = result
+    if getattr(args, '_should_open_pob2', False):
+        print('opening Path of Building...', file=sys.stderr)
+        _open_pob2(args._pob_exe)
+    return rc
 
 
 if __name__ == '__main__':

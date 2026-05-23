@@ -225,15 +225,16 @@ def _item_text(item, runes=(), anointment=None, pob=None):
 
 
 # -- jewels ---------------------------------------------------------------
-# Mobalytics jewelSlug -> PoB2 base type name (matched from icon filenames).
+# Mobalytics jewelSlug -> PoB2 base type name.
+# PoE2 uses Ruby/Emerald/Sapphire/Diamond (not the old PoE1 "X Jewel" names).
 _JEWEL_BASE_NAMES = {
-    'jewel-jewelstr':       'Ruby Jewel',
-    'jewel-jeweldex':       'Emerald Jewel',
-    'jewel-jewelint':       'Sapphire Jewel',
-    'jewel-jewelstrdex':    'Viridian Jewel',
-    'jewel-jewelstrint':    'Cobalt Jewel',
-    'jewel-jeweldexint':    'Prismatic Jewel',
-    'jewel-jewelnone':      'Jewel',
+    'jewel-jewelstr':       'Ruby',
+    'jewel-jeweldex':       'Emerald',
+    'jewel-jewelint':       'Sapphire',
+    'jewel-jewelstrdex':    'Diamond',
+    'jewel-jewelstrint':    'Diamond',
+    'jewel-jeweldexint':    'Diamond',
+    'jewel-jewelnone':      'Diamond',
 }
 
 
@@ -241,9 +242,7 @@ def _jewel_base_name(slug):
     """Map a Mobalytics jewel slug to a human-readable PoB base type."""
     if slug in _JEWEL_BASE_NAMES:
         return _JEWEL_BASE_NAMES[slug]
-    # Fallback: strip prefix and prettify (e.g. 'jewel-jewelstrdexint' -> 'Strdexint Jewel').
-    core = (slug or 'jewel').replace('jewel-jewel', '').replace('jewel-', '')
-    return (core.title() + ' Jewel') if core else 'Jewel'
+    return 'Diamond'  # safest PoE2 fallback (generic jewel base)
 
 
 def _jewel_text(jewel, pob):
@@ -371,6 +370,7 @@ def _itemset_xml(variant, pob, set_id, start_item_id, title=None):
 
     # Jewels: one PoB item per Mobalytics jewel, slotted into <Sockets>.
     jewel_sockets = []
+    filled_socket_nodes = set()
     for jewel in _jewels(variant):
         node_ids = _slug_ids([jewel.get('nodeSlug', '')])
         if not node_ids:
@@ -379,7 +379,18 @@ def _itemset_xml(variant, pob, set_id, start_item_id, title=None):
         items.append('<Item id="%d">\n%s\n</Item>' % (iid, _esc(txt)))
         jewel_sockets.append(
             '<Socket nodeId="%s" itemId="%d"/>' % (node_ids[0], iid))
+        filled_socket_nodes.add(node_ids[0])
         iid += 1
+
+    # Emit empty sockets for allocated jewel-socket nodes that have no jewel.
+    # PoB2 crashes if a containJewelSocket node is in the tree but has no
+    # corresponding <Socket> entry.
+    if pob and hasattr(pob, 'jewel_socket_nodes'):
+        pob_sockets = pob.jewel_socket_nodes
+        for nid in _tree_nodes(variant):
+            if nid in pob_sockets and nid not in filled_socket_nodes:
+                jewel_sockets.append('<Socket nodeId="%s" itemId="0"/>' % nid)
+
     jewel_sockets_xml = '<Sockets>%s</Sockets>' % ''.join(jewel_sockets) \
         if jewel_sockets else '<Sockets/>'
 
@@ -502,13 +513,28 @@ def convert_merged(variants, pob=None, class_override=None,
         variants = [variants[i] for i in order]
         titles = [titles[i] for i in order]
 
-    head = _resolve(variants[0], pob, class_override, ascendancy_override)
+    # Find class info from the first variant that has detectable ascendancy;
+    # fall back to each subsequent variant so sparse leveling variants don't
+    # block the whole merge.
+    head = None
+    for v in variants:
+        try:
+            head = _resolve(v, pob, class_override, ascendancy_override)
+            break
+        except ValueError:
+            continue
+    if head is None:
+        # All variants failed - raise from the first one for a clear message.
+        head = _resolve(variants[0], pob, class_override, ascendancy_override)
     tree_version = pob.tree_version if pob else '0_4'
 
     specs, skillsets, all_items, itemsets = [], [], [], []
     next_id = 1
     for i, variant in enumerate(variants):
-        info = _resolve(variant, pob, class_override, ascendancy_override)
+        try:
+            info = _resolve(variant, pob, class_override, ascendancy_override)
+        except ValueError:
+            info = head  # sparse variant - reuse detected class
         parts = _build_variant_parts(
             variant, pob, info, set_id=i + 1, start_item_id=next_id,
             tree_version=tree_version, title=titles[i])

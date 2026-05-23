@@ -28,6 +28,39 @@ def find_install(explicit=None):
     return None
 
 
+def find_exe(install=None):
+    """Return the PoB2 executable path, or None."""
+    base = install or find_install()
+    if not base:
+        return None
+    for name in ('Path of Building-PoE2.exe', 'PathOfBuilding.exe',
+                 'Path of Building.exe'):
+        p = os.path.join(base, name)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def find_builds_dir(explicit=None):
+    """Return the PoB2 user builds directory, or None.
+
+    PoB2 stores user data (builds, settings) in
+    ~/Documents/Path of Building (PoE2)/ - separate from the install dir.
+    """
+    candidates = [
+        explicit,
+        os.environ.get('POB2_BUILDS_PATH'),
+        os.path.join(os.path.expanduser('~'), 'Documents',
+                     'Path of Building (PoE2)', 'Builds'),
+        os.path.join(os.path.expanduser('~'), 'Documents',
+                     'Path of Building Community (PoE2)', 'Builds'),
+    ]
+    for cand in candidates:
+        if cand and os.path.isdir(cand):
+            return cand
+    return None
+
+
 def _balanced(s, i):
     """s[i] is '{'; return index past the matching '}'."""
     depth = 0
@@ -81,6 +114,28 @@ class PoBData:
         block = self._tree[i:_balanced(self._tree, i + len(anchor) - 1)]
         m = re.search(r'ascendancyName="([^"]+)"', block)
         return m.group(1) if m else None
+
+    @property
+    def jewel_socket_nodes(self):
+        """Set of node IDs (str) that accept jewels.
+
+        Covers both plain Jewel Socket nodes (isJewelSocket=true) and
+        notable nodes that contain a socket (containJewelSocket=true).
+        """
+        if not hasattr(self, '_jewel_socket_nodes'):
+            result = set()
+            tree = self._tree
+            pattern = re.compile(r'(?:isJewelSocket|containJewelSocket)=true')
+            for m in pattern.finditer(tree):
+                # Scan back for the nearest enclosing [<digits>]={ entry.
+                prefix = tree[max(0, m.start() - 2000):m.start()]
+                last = None
+                for id_m in re.finditer(r'\[(\d{4,})\]={', prefix):
+                    last = id_m
+                if last:
+                    result.add(last.group(1))
+            self._jewel_socket_nodes = result
+        return self._jewel_socket_nodes
 
     # -- gems ------------------------------------------------------------
     @property

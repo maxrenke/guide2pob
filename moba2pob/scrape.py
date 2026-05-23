@@ -54,13 +54,21 @@ def _extract_preloaded_state(html):
 
 
 def _find_build_document(obj):
-    """Recursively locate the userGeneratedDocumentBySlug build document."""
+    """Recursively locate the build document in __PRELOADED_STATE__.
+
+    Handles two Mobalytics URL formats:
+      /poe-2/builds/<slug>          -> userGeneratedDocumentBySlug
+      /poe-2/profile/<user>/builds/ -> userGeneratedDocumentBySlugifiedName
+    Both nest the build data at doc['data']['data'].
+    """
     if isinstance(obj, dict):
-        if 'userGeneratedDocumentBySlug' in obj:
-            doc = obj['userGeneratedDocumentBySlug']
-            data = (doc or {}).get('data', {}).get('data')
-            if data and 'buildVariants' in data:
-                return data
+        for key in ('userGeneratedDocumentBySlug',
+                    'userGeneratedDocumentBySlugifiedName'):
+            if key in obj:
+                doc = obj[key]
+                data = (doc or {}).get('data', {}).get('data')
+                if data and 'buildVariants' in data:
+                    return data
         for v in obj.values():
             found = _find_build_document(v)
             if found:
