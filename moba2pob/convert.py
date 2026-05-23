@@ -33,6 +33,46 @@ _SLOT_MAP = {
 }
 _WEAPON_SLOTS = ('mainHand', 'offHand')
 
+# Fallback unique-item base types for when no PoB2 install is available.
+# Maps lowercase unique name -> PoB2 base type string.
+# Populated from PoB2's Data/Uniques/*.lua; extend as needed.
+_FALLBACK_UNIQUE_BASES: dict = {
+    # Helmets
+    "atziri's disdain":      "Jade Husk",
+    "crown of eyes":         "Rusted Coif",
+    "the vertex":            "Vaal Mask",
+    "brinerot whalers":      "Wrapped Boots",      # note: actually boots
+    # Body armour
+    "tabula rasa":           "Simple Robe",
+    "cloak of defiance":     "Lacquered Garb",
+    "shavronne's wrappings": "Spidersilk Robe",
+    # Gloves
+    "doedre's tenure":       "Scholar's Gloves",
+    "aurora's hands":        "Sorcerer Gloves",
+    # Boots
+    "wanderlust":            "Wool Shoes",
+    "rainbowstride":         "Conjurer Boots",
+    # Amulets
+    "the brass dome":        "Iron Plate",          # note: body in PoE1; skip if wrong
+    "presence of chayula":   "Onyx Amulet",
+    "malachai's artifice":   "Paua Ring",           # note: ring in PoE1
+    # Rings
+    "snakepit":              "Coral Ring",
+    "winterheart":           "Gold Ring",
+    "the taming":            "Prismatic Ring",
+    "heartbound loop":       "Moonstone Ring",
+    # Belts
+    "darkness enthroned":    "Studded Belt",
+    "headhunter":            "Leather Belt",
+    "wurm's molt":           "Leather Belt",
+    # Wands
+    "lifesprig":             "Driftwood Wand",
+    "void battery":          "Prophecy Wand",
+    # Staves / other weapons
+    "the annihilating light": "Judgement Staff",
+    "atziri's acuity":       "Vaal Gloves",         # gloves
+}
+
 
 def _esc(s):
     return _html.escape(str(s), quote=True)
@@ -200,7 +240,8 @@ def _item_text(item, runes=(), anointment=None, pob=None):
     rarity = 'UNIQUE' if item.get('isUnique') else 'RARE'
     lines = ['Rarity: ' + rarity, name]
     if rarity == 'UNIQUE':
-        base = pob.unique_bases.get(name.lower()) if pob else None
+        base = (pob.unique_bases.get(name.lower()) if pob else None
+                or _FALLBACK_UNIQUE_BASES.get(name.lower()))
         lines.append(base or name)
     else:
         lines.append(name)  # Mobalytics reports rares by base type

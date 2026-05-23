@@ -62,9 +62,11 @@ def _build_parser():
     p = argparse.ArgumentParser(
         prog='moba2pob',
         description='Convert a Mobalytics PoE build guide into a '
-                    'Path of Building import code.')
+                    'Path of Building import code.',
+        fromfile_prefix_chars='@')
     p.add_argument('source', nargs='+',
-                   help='one or more Mobalytics build URLs or local .html/.json files')
+                   help='one or more Mobalytics build URLs or local .html/.json files; '
+                        'prefix a filename with @ to read URLs from it (one per line)')
     p.add_argument('--game', choices=['poe1', 'poe2'],
                    help='game version (default: auto-detected from URL)')
     p.add_argument('--variant', default='all',
@@ -97,6 +99,8 @@ def _build_parser():
                         '(default: on)')
     p.add_argument('--no-open', dest='open', action='store_false',
                    help='disable auto-open in Path of Building')
+    p.add_argument('--info', action='store_true',
+                   help='print build name, variants, and class without converting')
     p.add_argument('--json', action='store_true',
                    help='dump the scraped build data as JSON and exit')
     p.add_argument('--class', dest='cls', metavar='NAME',
@@ -161,6 +165,36 @@ def _make_notes(name, source, labels, description=None, html=None):
     return '\n\n'.join(parts)
 
 
+def _label_slug(label):
+    """Turn a variant label into a safe filename fragment, e.g. 'Endgame' -> 'Endgame'."""
+    safe = re.sub(r'[^\w\s-]', '', label or '').strip()
+    safe = re.sub(r'[\s]+', '-', safe)
+    return safe[:40] or None  # cap length; None if empty after sanitising
+
+
+def _print_info(doc, html, source):
+    """Print build metadata to stdout without running conversion."""
+    variants = build_variants(doc)
+    labels = variant_labels(html, variants)
+    name = doc.get('name', 'build')
+    game = _detect_game(source)
+    slug = slug_from_url(source) or 'build'
+    desc = build_description(html)
+
+    print(f'name:     {name}')
+    print(f'slug:     {slug}')
+    print(f'game:     PoE{"1" if game == "poe1" else "2"}')
+    if desc:
+        print(f'summary:  {desc[:120]}')
+    print(f'variants: {len(variants)}')
+    for i, (v, lbl) in enumerate(zip(variants, labels)):
+        pt = v.get('passiveTree') or {}
+        n_main = len((pt.get('mainTree') or {}).get('selectedSlugs') or [])
+        n_asc = len((pt.get('ascendancyTree') or {}).get('selectedSlugs') or [])
+        label_str = f'  [{i}] {lbl or "Variant " + str(i)}'
+        print(f'{label_str:<30}  {n_main} main + {n_asc} ascendancy nodes')
+
+
 # -- PoE2 helpers -----------------------------------------------------------
 
 def _convert_one_poe2(variant, idx, args, pob, labels, notes=None):
@@ -215,7 +249,8 @@ def _run_poe2(doc, html, args, slug):
             rc = 1
             continue
 
-        _output(meta, slug, idx, args, out_dir, game='poe2')
+        _output(meta, slug, idx, args, out_dir, game='poe2',
+                label=labels[idx] if idx < len(labels) else None)
 
     return rc
 
@@ -307,7 +342,8 @@ def _run_poe1(doc, html, args, slug):
         print(f"# variant {idx}{label_str}: {meta['class']} / {meta['ascendancy']}  "
               f"- {meta.get('node_count', '?')} nodes",
               file=sys.stderr)
-        _output(meta, slug, idx, args, out_dir, game='poe1')
+        _output(meta, slug, idx, args, out_dir, game='poe1',
+                label=labels[idx] if idx < len(labels) else None)
 
     return rc
 
@@ -333,7 +369,7 @@ def _run_merge_poe1(doc, slug, args, labels, notes=None):
 
 # -- shared output ----------------------------------------------------------
 
-def _output(meta, slug, idx, args, out_dir, game='poe2'):
+def _output(meta, slug, idx, args, out_dir, game='poe2', label=None):
     # Treat -o <dir> the same as out_dir when the path is/looks like a directory.
     effective_dir = out_dir
     effective_file = args.out if args.out else None
@@ -344,7 +380,13 @@ def _output(meta, slug, idx, args, out_dir, game='poe2'):
 
     if effective_dir:
         os.makedirs(effective_dir, exist_ok=True)
-        suffix = f'-v{idx}' if idx is not None else ''
+        lslug = _label_slug(label)
+        if lslug:
+            suffix = f'-{lslug}'
+        elif idx is not None:
+            suffix = f'-v{idx}'
+        else:
+            suffix = ''
         base = os.path.join(effective_dir, f'{slug}{suffix}')
         _write(base + '.txt', meta['code'])
         if args.xml:
@@ -359,7 +401,13 @@ def _output(meta, slug, idx, args, out_dir, game='poe2'):
         print(meta['code'])
     saved_path = None
     if getattr(args, '_pob_builds_dir', None) and args.save_pob:
-        suffix = f'-v{idx}' if idx is not None else ''
+        lslug = _label_slug(label)
+        if lslug:
+            suffix = f'-{lslug}'
+        elif idx is not None:
+            suffix = f'-v{idx}'
+        else:
+            suffix = ''
         saved_path = os.path.join(args._pob_builds_dir, f'{slug}{suffix}.xml')
         _write(saved_path, meta['xml'])
         print(f'saved  {saved_path}', file=sys.stderr)
@@ -432,6 +480,10 @@ def _process_one(source, args):
         print('error: build has no variants', file=sys.stderr)
         return 2
 
+    if args.info:
+        _print_info(doc, html, source)
+        return 0
+
     if args.json:
         json.dump(doc, sys.stdout, indent=1)
         return 0
@@ -454,17 +506,29 @@ def _process_one(source, args):
 def main(argv=None):
     args = _build_parser().parse_args(argv)
 
-    rc = 0
+    results = []  # list of (source, exit_code)
     for source in args.source:
         if len(args.source) > 1:
             print(f'\n--- {source} ---', file=sys.stderr)
         result = _process_one(source, args)
-        if result and result > rc:
-            rc = result
+        results.append((source, result or 0))
+
+    if len(results) > 1 and not args.info:
+        ok = sum(1 for _, r in results if r == 0)
+        fail = len(results) - ok
+        print(f'\n--- summary: {ok} ok'
+              + (f', {fail} failed' if fail else '')
+              + ' ---', file=sys.stderr)
+        if fail:
+            for src, r in results:
+                if r:
+                    print(f'  failed: {src}', file=sys.stderr)
+
     if getattr(args, '_should_open_pob2', False):
         print('opening Path of Building...', file=sys.stderr)
         _open_pob2(args._pob_exe)
-    return rc
+
+    return max(r for _, r in results) if results else 0
 
 
 if __name__ == '__main__':
