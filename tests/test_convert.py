@@ -4,7 +4,9 @@ import unittest
 import zlib
 
 from moba2pob.convert import (
-    convert, convert_merged, encode, _item_text, gem_name, _tree_nodes)
+    convert, convert_merged, encode, _item_text, gem_name, _tree_nodes,
+    _common_item, _attribute_overrides, _weapon_set_tree_nodes,
+    _humanize_rune)
 from tests.fixtures import sample_variant
 
 
@@ -65,13 +67,11 @@ class TestConvertSingle(unittest.TestCase):
 class TestItemText(unittest.TestCase):
 
     def test_rare_item_format(self):
-        slot = {
-            'commonItem': {
-                'isUnique': False, 'name': 'Altar Robe',
-                'explicitDescriptions': [{'description': '+100 to Life'}],
-            },
+        item = {
+            'isUnique': False, 'name': 'Altar Robe',
+            'explicitDescriptions': [{'description': '+100 to Life'}],
         }
-        text = _item_text(slot, pob=None)
+        text = _item_text(item)
         lines = text.split('\n')
         self.assertEqual(lines[0], 'Rarity: RARE')
         self.assertEqual(lines[1], 'Altar Robe')
@@ -82,25 +82,70 @@ class TestItemText(unittest.TestCase):
         self.assertIn('+100 to Life', lines)
 
     def test_unique_item_keeps_unique_rarity(self):
-        slot = {
-            'commonItem': {
-                'isUnique': True, 'name': 'Atziri\'s Disdain',
-                'explicitDescriptions': [],
-            },
-        }
-        text = _item_text(slot, pob=None)
+        item = {'isUnique': True, 'name': 'Atziri\'s Disdain',
+                'explicitDescriptions': []}
+        text = _item_text(item)
         self.assertTrue(text.startswith('Rarity: UNIQUE'))
 
-    def test_weapon_set_slot_unwraps(self):
-        slot = {'set1': {'commonItem': {
-            'isUnique': False, 'name': 'Wand',
-            'explicitDescriptions': []}}}
-        text = _item_text(slot, pob=None)
-        self.assertTrue(text.startswith('Rarity: RARE\nWand'))
+    def test_runes_become_sockets(self):
+        item = {'isUnique': False, 'name': 'Altar Robe',
+                'explicitDescriptions': []}
+        runes = [{'slug': 'soulcore-enhance'}, {'slug': 'soulcore-defense'}]
+        text = _item_text(item, runes=runes)
+        self.assertIn('Sockets: S S', text)
+        self.assertIn('Rune: Soulcore Enhance', text)
+        self.assertIn('Rune: Soulcore Defense', text)
 
-    def test_empty_slot_returns_none(self):
-        self.assertIsNone(_item_text(None, pob=None))
-        self.assertIsNone(_item_text({}, pob=None))
+    def test_anointment_becomes_enchant_line(self):
+        item = {'isUnique': False, 'name': 'Lunar Amulet',
+                'explicitDescriptions': []}
+        text = _item_text(
+            item,
+            anointment={'description': 'Allocates Forces of Nature'})
+        self.assertIn('Allocates Forces of Nature (enchant)', text)
+
+    def test_empty_returns_none(self):
+        self.assertIsNone(_item_text(None))
+        self.assertIsNone(_item_text({}))
+
+
+class TestSlotUnwrap(unittest.TestCase):
+
+    def test_common_item_path(self):
+        self.assertEqual(_common_item({'commonItem': {'name': 'x'}}),
+                          {'name': 'x'})
+
+    def test_weapon_set(self):
+        slot = {'set1': {'commonItem': {'name': 'wand'}}}
+        self.assertEqual(_common_item(slot), {'name': 'wand'})
+
+
+class TestPassiveTreeExtras(unittest.TestCase):
+
+    def test_attribute_overrides_group_by_attribute(self):
+        variant = {'passiveTree': {'attributeNodes': [
+            {'attribute': 'str', 'nodeSlug': 'node-100'},
+            {'attribute': 'dex', 'nodeSlug': 'node-200'},
+            {'attribute': 'str', 'nodeSlug': 'node-300'},
+            {'attribute': 'int', 'nodeSlug': 'node-400'},
+        ]}}
+        out = _attribute_overrides(variant)
+        self.assertEqual(out['str'], ['100', '300'])
+        self.assertEqual(out['dex'], ['200'])
+        self.assertEqual(out['int'], ['400'])
+
+    def test_weapon_set_tree_nodes(self):
+        variant = {'passiveTree': {
+            'set1Tree': {'selectedSlugs': ['node-1', 'node-2']},
+            'set2Tree': {'selectedSlugs': ['node-3']},
+        }}
+        out = _weapon_set_tree_nodes(variant)
+        self.assertEqual(out, {1: ['1', '2'], 2: ['3']})
+
+    def test_humanize_rune(self):
+        self.assertEqual(
+            _humanize_rune('soulcore-runeenhancegreater'),
+            'Soulcore Runeenhancegreater')
 
 
 class TestTreeNodes(unittest.TestCase):

@@ -78,11 +78,11 @@ def _load_pob(args):
     return PoBData(install)
 
 
-def _convert_one(variant, idx, args, pob, labels):
+def _convert_one(variant, idx, args, pob, labels, notes=None):
     title = labels[idx] if idx < len(labels) else None
     meta = convert(variant, pob=pob, class_override=args.cls,
                    ascendancy_override=args.ascendancy, level=args.level,
-                   title=title)
+                   title=title, notes=notes)
     detected = ' (detected)' if meta['detected_ascendancy'] else ''
     label = f' "{title}"' if title else ''
     print(f"# variant {idx}{label}: {meta['class']} / {meta['ascendancy']}{detected}  "
@@ -115,11 +115,13 @@ def main(argv=None):
     print(f'build: {name}  ({len(variants)} variant'
           f'{"s" if len(variants) != 1 else ""})', file=sys.stderr)
 
+    notes = _make_notes(name, args.source, labels)
+
     pob = _load_pob(args)
     slug = slug_from_url(args.source) or 'build'
 
     if args.merge:
-        return _run_merge(variants, slug, args, pob, labels)
+        return _run_merge(variants, slug, args, pob, labels, notes)
 
     if args.variant == 'all':
         indices = list(range(len(variants)))
@@ -141,7 +143,8 @@ def main(argv=None):
     rc = 0
     for idx in indices:
         try:
-            meta = _convert_one(variants[idx], idx, args, pob, labels)
+            meta = _convert_one(variants[idx], idx, args, pob, labels,
+                                 notes=notes)
         except ValueError as e:
             print(f'error: variant {idx}: {e}', file=sys.stderr)
             rc = 1
@@ -195,12 +198,22 @@ def _open_url(url):
         print(f'could not open {url}: {e}', file=sys.stderr)
 
 
-def _run_merge(variants, slug, args, pob, labels):
+def _make_notes(name, source, labels):
+    lines = [name, source, '']
+    if any(labels):
+        lines.append('Variants:')
+        for i, lbl in enumerate(labels):
+            lines.append(f'  {i}: {lbl or "Variant " + str(i)}')
+    return '\n'.join(lines)
+
+
+def _run_merge(variants, slug, args, pob, labels, notes=None):
     titles = [labels[i] or f'Variant {i}' for i in range(len(variants))]
     try:
         meta = convert_merged(variants, pob=pob, class_override=args.cls,
                               ascendancy_override=args.ascendancy,
                               level=args.level, titles=titles,
+                              notes=notes,
                               progression_order=not args.no_reorder)
     except ValueError as e:
         print(f'error: {e}', file=sys.stderr)
