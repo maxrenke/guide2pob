@@ -5,6 +5,7 @@ Mobalytics is a Next.js app that embeds the full structured build inside a
 automation, or API key is needed - a plain HTTP GET with browser-like headers
 is enough.
 """
+import html as _html
 import json
 import re
 import urllib.request
@@ -150,3 +151,43 @@ def build_variants(doc):
 def slug_from_url(url):
     m = re.search(r'/builds/([A-Za-z0-9-]+)', url)
     return m.group(1) if m else None
+
+
+def build_description(html):
+    """Return the og:description text from the page, or None."""
+    if not html:
+        return None
+    m = re.search(r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"', html)
+    if not m:
+        m = re.search(r'<meta[^>]+content="([^"]{40,})"[^>]+property="og:description"', html)
+    return _html.unescape(m.group(1)).strip() if m else None
+
+
+def guide_text(html):
+    """Extract plain text from Mobalytics Lexical rich-text content blocks.
+
+    Mobalytics renders guide prose inside ``<div class="lexical-rich-text-content">``
+    elements. Returns a single string with all blocks joined by blank lines, or
+    an empty string when no blocks are found or ``html`` is None.
+    """
+    if not html:
+        return ''
+
+    # Grab everything inside each lexical div. The div is always closed by
+    # </div></div> (the outer wrapper div follows immediately).
+    raw_blocks = re.findall(
+        r'lexical-rich-text-content[^>]*>(.*?)</div>\s*</div>',
+        html, re.S)
+
+    def _strip(h):
+        h = re.sub(r'<br\s*/?>', '\n', h)
+        h = re.sub(r'</(p|h[1-6]|li|div)>', '\n', h)
+        h = re.sub(r'<(ul|ol)[^>]*>', '\n', h)
+        h = re.sub(r'<li[^>]*>', '- ', h)
+        h = re.sub(r'<[^>]+>', '', h)
+        h = _html.unescape(h)
+        lines = [ln.strip() for ln in h.splitlines()]
+        return '\n'.join(ln for ln in lines if ln)
+
+    parts = [_strip(blk) for blk in raw_blocks]
+    return '\n\n'.join(p for p in parts if p)

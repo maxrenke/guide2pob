@@ -276,19 +276,61 @@ def _jewels(variant):
 
 # -- priority list --------------------------------------------------------
 def _priority_notes(variant):
-    """Return a formatted string listing the ascendancy node priority order.
+    """Return formatted priority info for a variant: ascendancy, equipment, gems.
 
-    Returns an empty string if the variant has no priority list.
+    Returns an empty string when no useful data is present.
     """
-    pl = ((variant.get('passiveTree') or {})
-          .get('ascendancyTree') or {}).get('priorityList') or []
-    if not pl:
-        return ''
-    lines = ['Ascendancy Priority:']
-    for i, entry in enumerate(pl, 1):
-        name = entry.get('name') or entry.get('slug', '')
-        lines.append(f'  {i}. {name}')
-    return '\n'.join(lines)
+    parts = []
+
+    # Ascendancy node priority
+    asc_pl = ((variant.get('passiveTree') or {})
+              .get('ascendancyTree') or {}).get('priorityList') or []
+    if asc_pl:
+        lines = ['Ascendancy Priority:']
+        for i, entry in enumerate(asc_pl, 1):
+            name = entry.get('name') or entry.get('slug', '')
+            lines.append(f'  {i}. {name}')
+        parts.append('\n'.join(lines))
+
+    # Equipment priority list
+    eq_pl = (variant.get('equipment') or {}).get('priorityList') or []
+    if eq_pl:
+        lines = ['Equipment Priority:']
+        for i, entry in enumerate(eq_pl, 1):
+            name = entry.get('name') or entry.get('slug', '')
+            slot = entry.get('type', '')
+            lines.append(f'  {i}. {name}' + (f' ({slot})' if slot else ''))
+        parts.append('\n'.join(lines))
+
+    # Skill gem priority (grouped by parent active skill).
+    # Build slug->display-name map from the skillGems.gems list first so we
+    # get proper names like "Essence Drain" instead of "essencedrainplayer".
+    pg = (variant.get('skillGems') or {}).get('priorityGems') or []
+    if pg:
+        slug_to_name: dict = {}
+        for grp in (variant.get('skillGems') or {}).get('gems', []):
+            act = grp.get('activeSkill') or {}
+            s = (act.get('gemSlug') or '').lower()
+            n = act.get('name') or ''
+            if s and n:
+                slug_to_name[s] = n
+        groups: dict = {}
+        for gem in pg:
+            parent = (gem.get('parentActiveSkillGemSlug') or '').lower()
+            label = slug_to_name.get(parent) or slug_to_name.get(
+                re.sub(r'(player.*|two|three|four)$', '', parent))
+            if not label:
+                # Last-resort: strip suffix + title-case the slug
+                label = re.sub(r'(player.*|two|three|four)$', '', parent)
+                label = label.strip().title() or 'General'
+            gem_name_str = gem.get('name') or gem.get('gemSlug', '')
+            groups.setdefault(label, []).append(gem_name_str)
+        lines = ['Gem Priorities:']
+        for label, names in groups.items():
+            lines.append(f'  {label}: {", ".join(names)}')
+        parts.append('\n'.join(lines))
+
+    return '\n\n'.join(parts)
 
 
 # -- XML components -------------------------------------------------------

@@ -11,7 +11,8 @@ import urllib.request
 
 from . import __version__
 from .scrape import (
-    load_build, build_variants, variant_labels, slug_from_url, ScrapeError)
+    load_build, build_variants, variant_labels, slug_from_url, ScrapeError,
+    build_description, guide_text)
 from .convert import convert, convert_merged
 from .convert_poe1 import (
     convert as convert_poe1,
@@ -133,13 +134,31 @@ def _load_pob(args):
     return PoBData(install)
 
 
-def _make_notes(name, source, labels):
-    lines = [name, source, '']
+def _make_notes(name, source, labels, description=None, html=None):
+    """Build the base Notes string: URL, description, guide text, variant list."""
+    parts = []
+
+    # Header: build name + source URL
+    header = [name, source]
+    parts.append('\n'.join(header))
+
+    # Short description from og:description (skip if it just restates the name)
+    if description and description.lower() != name.lower():
+        parts.append(description)
+
+    # Full guide text extracted from Lexical rich-text blocks in the page HTML
+    gt = guide_text(html) if html else ''
+    if gt:
+        parts.append(gt)
+
+    # Variant index -> label map
     if any(labels):
-        lines.append('Variants:')
+        lines = ['Variants:']
         for i, lbl in enumerate(labels):
             lines.append(f'  {i}: {lbl or "Variant " + str(i)}')
-    return '\n'.join(lines)
+        parts.append('\n'.join(lines))
+
+    return '\n\n'.join(parts)
 
 
 # -- PoE2 helpers -----------------------------------------------------------
@@ -161,7 +180,8 @@ def _run_poe2(doc, html, args, slug):
     variants = build_variants(doc)
     labels = variant_labels(html, variants)
     name = doc.get('name', 'build')
-    notes = _make_notes(name, args.source, labels)
+    notes = _make_notes(name, args.source, labels,
+                        description=build_description(html), html=html)
     pob = _load_pob(args)
 
     if args.merge:
@@ -233,7 +253,8 @@ def _run_poe1(doc, html, args, slug):
     variants = build_variants(doc)
     labels = variant_labels(html, variants)
     name = doc.get('name', 'build')
-    notes = _make_notes(name, args.source, labels)
+    notes = _make_notes(name, args.source, labels,
+                        description=build_description(html), html=html)
 
     if args.merge:
         return _run_merge_poe1(doc, slug, args, labels, notes)
