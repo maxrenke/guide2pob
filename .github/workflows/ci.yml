@@ -31,5 +31,5 @@ jobs:
 
       - name: Smoke test CLI
         run: |
-          python -m moba2pob --version
-          moba2pob --help
+          python -m guide2pob --version
+          guide2pob --help

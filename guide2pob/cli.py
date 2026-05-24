@@ -21,7 +21,8 @@ from .scrape_maxroll import (
 from .convert import convert, convert_merged
 from .convert_maxroll import (
     convert as convert_maxroll,
-    convert_merged as convert_merged_maxroll)
+    convert_merged as convert_merged_maxroll,
+    _resolve as _resolve_maxroll)
 from .convert_poe1 import (
     convert as convert_poe1,
     convert_merged as convert_merged_poe1,
@@ -525,8 +526,17 @@ def _run_maxroll(source, args):
     if args.info:
         print(f'name:     {name}')
         print(f'slug:     {slug}')
-        asc = planner.get('ascendancy', '')
-        print(f'class:    {asc}')
+        print(f'game:     PoE2')
+        if guide_html:
+            desc = build_description(guide_html)
+            if desc and desc.lower() != name.lower():
+                print(f'summary:  {desc[:120]}')
+        try:
+            _info = _resolve_maxroll(planner, profile, args.cls, args.ascendancy)
+            print(f'class:    {_info["class_name"]} / {_info["ascend_name"]}')
+        except ValueError:
+            asc_raw = planner.get('ascendancy', '')
+            print(f'class:    {asc_raw} (unresolved - use --ascendancy)')
         print(f'phases:   {n}')
         for i, t in enumerate(titles):
             n_nodes = len(_parse_history(p_vars[i].get('history') if i < len(p_vars) else {})[0])
@@ -543,7 +553,8 @@ def _run_maxroll(source, args):
                 planner, profile, pob=pob,
                 class_override=args.cls,
                 ascendancy_override=args.ascendancy,
-                level=args.level, titles=titles, notes=notes)
+                level=args.level, titles=titles, notes=notes,
+                progression_order=not args.no_reorder)
         except ValueError as e:
             print(f'error: {e}', file=sys.stderr)
             return 1

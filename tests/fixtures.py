@@ -90,6 +90,115 @@ def sample_variant():
     }
 
 
+def sample_maxroll_planner():
+    """Return a minimal Maxroll planner dict with two phases.
+
+    Phase 0 = leveling (3 nodes), Phase 1 = endgame (5 nodes).
+    Includes items with explicits/implicits, a unique item, a magic item,
+    jewels in tree sockets, and skill gems.
+    """
+    return {
+        'ascendancy': 'Witch3',  # internal ID for Lich
+        'passives': {
+            'variants': [
+                {
+                    'name': 'Leveling',
+                    'history': [100, 200, 300],
+                    'jewels': {},
+                },
+                {
+                    'name': 'Endgame',
+                    'history': [100, 200, 300, 400, 500,
+                                {'id': 600, 'set': 2}],
+                    'jewels': {'7960': 10},
+                },
+            ],
+        },
+        'equipment': {
+            'variants': [
+                {
+                    'name': 'Leveling',
+                    'items': {'Weapon': 1, 'Helm': 2},
+                },
+                {
+                    'name': 'Endgame',
+                    'items': {'Weapon': 1, 'Helm': 2, 'BodyArmour': 3,
+                              'Amulet': 4, 'Ring': 5},
+                },
+            ],
+        },
+        'skills': {
+            'steps': [
+                {
+                    'name': 'Leveling',
+                    'skills': [
+                        {'gems': [
+                            {'id': 'Metadata/Items/Gems/SkillGemContagion',
+                             'level': 1},
+                            {'id': 'Metadata/Items/Gems/SupportGemUnleash',
+                             'level': 1},
+                        ]},
+                    ],
+                },
+                {
+                    'name': 'Endgame',
+                    'skills': [
+                        {'gems': [
+                            {'id': 'Metadata/Items/Gems/SkillGemContagion',
+                             'level': 20},
+                            {'id': 'Metadata/Items/Gems/SupportGemUnleash',
+                             'level': 20},
+                        ]},
+                    ],
+                },
+            ],
+        },
+        'items': {
+            '1': {
+                'name': 'Plague Wand',
+                'rarity': 'rare',
+                'base': 'Metadata/Items/Weapons/OneHandWeapons/Wands/FourWandInt',
+                'implicits': [{'text': '20% increased Spell Damage'}],
+                'explicits': [
+                    {'text': '+50 to Maximum Mana'},
+                    {'text': '+30 to Intelligence'},
+                ],
+            },
+            '2': {
+                'name': "Atziri's Disdain",
+                'rarity': 'unique',
+                'base': 'Metadata/Items/Armours/Helmets/FourHelmetInt',
+            },
+            '3': {
+                'name': 'Tabula Rasa',
+                'rarity': 'unique',
+                'base': 'Metadata/Items/Armours/BodyArmours/FourBodyInt',
+            },
+            '4': {
+                'name': 'Rare Amulet',
+                'rarity': 'magic',
+                'base': 'Metadata/Items/Amulets/FourAmuletInt',
+                'implicits': [],
+                'explicits': [{'text': '+20 to all Attributes'}],
+            },
+            '5': {
+                'name': 'Circle Ring',
+                'rarity': 'rare',
+                'base': 'Metadata/Items/Rings/FourRing',
+                'implicits': [],
+                'explicits': [{'text': '+15 to maximum Life'}],
+            },
+            '10': {
+                'name': 'Rare Jewel',
+                'rarity': 'rare',
+                'base': 'Metadata/Items/Jewels/JewelInt',
+                'implicits': [],
+                'explicits': [{'text': '5% increased maximum Life'}],
+            },
+        },
+    }
+
+
 def sample_html():
     """Return HTML resembling a Mobalytics build page, small but realistic."""
     state = (

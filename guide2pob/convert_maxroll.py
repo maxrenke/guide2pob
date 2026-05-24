@@ -6,9 +6,8 @@ and mod stat dicts. This module maps that data to PoB2 XML using the same
 ``_document`` / ``encode`` helpers as the Mobalytics converter.
 """
 import re
-import html as _html
 
-from .convert import _document, encode, _spec_xml, _esc
+from .convert import _document, encode, _esc, _FALLBACK_UNIQUE_BASES
 from .poe2data import CLASSES, resolve_class
 from .scrape_maxroll import passive_variants, equipment_variants, skill_steps
 
@@ -46,8 +45,10 @@ def _parse_history(history):
             nid = str(entry.get('id', ''))
             if nid and nid.isdigit():
                 (set2 if entry.get('set') == 2 else set1).append(nid)
-        elif isinstance(entry, int):
-            set1.append(str(entry))
+        elif isinstance(entry, (int, str)):
+            nid = str(entry)
+            if nid.isdigit():
+                set1.append(nid)
     return set1, set2
 
 
@@ -126,8 +127,49 @@ _BASE_MAP = [
     ('fourbootsdexint',  'Grand Cuisses'),
     # Focuses
     ('fourfocus',        'Tasalian Focus'),
+    # Wands
+    ('fourwandint',      'Spiraled Wand'),
+    ('fourwandstr',      'Carved Wand'),
+    ('fourwanddex',      'Driftwood Wand'),
+    ('fourwand',         'Spiraled Wand'),
+    # Bows
+    ('fourbowdex',       'Composite Bow'),
+    ('fourbow',          'Composite Bow'),
+    # Sceptres
+    ('foursceptrestrint', 'Karui Sceptre'),
+    ('foursceptrestr',   'Driftwood Sceptre'),
+    ('foursceptre',      'Driftwood Sceptre'),
+    # Shields (offhand)
+    ('fourshieldint',    'Laminated Kite Shield'),
+    ('fourshieldstr',    'Mahogany Tower Shield'),
+    ('fourshielddex',    'Lacquered Buckler'),
+    ('fourshield',       'Laminated Kite Shield'),
     # Staves
     ('fourstaff',        'Dreaming Quarterstaff'),
+    # Crossbows
+    ('fourcrossbow',     'Felling Crossbow'),
+    # Flails
+    ('fourflailstr',     'Bone Flail'),
+    ('fourflail',        'Bone Flail'),
+    # Spears
+    ('fourspear',        'Jade Spear'),
+    # Quarterstaves
+    ('fourquarterstaff', 'Dreaming Quarterstaff'),
+    # Axes
+    ('fouraxestr',       'Rusted Axe'),
+    ('fouraxe',          'Rusted Axe'),
+    # Maces
+    ('fourmacestr',      'Driftwood Club'),
+    ('fourmace',         'Driftwood Club'),
+    # Swords
+    ('fourswordstr',     'Corroded Blade'),
+    ('foursword',        'Corroded Blade'),
+    # Claws
+    ('fourclawdex',      'Nailed Fist'),
+    ('fourclaw',         'Nailed Fist'),
+    # Daggers
+    ('fourdaggerdex',    'Glass Shank'),
+    ('fourdagger',       'Glass Shank'),
     # Amulets
     ('fouramulet',       'Tenebrous Amulet'),
     # Rings
@@ -196,7 +238,9 @@ def _item_text(item, pob):
 
     if rarity == 'unique':
         pob_rarity = 'UNIQUE'
-        base = (pob.unique_bases.get(name.lower()) if pob else None) or name
+        base = ((pob.unique_bases.get(name.lower()) if pob else None)
+                or _FALLBACK_UNIQUE_BASES.get(name.lower())
+                or name)
     elif rarity == 'magic':
         pob_rarity = 'MAGIC'
         base = _base_type_from_path(item.get('base'), pob) or 'Item'
@@ -207,8 +251,30 @@ def _item_text(item, pob):
         if not name:
             name = base
 
+    def _mod_texts(raw):
+        """Extract mod strings from a Maxroll mod list (various shapes)."""
+        out = []
+        for m in (raw or []):
+            if isinstance(m, str):
+                out.append(m)
+            elif isinstance(m, dict):
+                text = (m.get('text') or m.get('value') or m.get('description')
+                        or m.get('name') or '')
+                if text:
+                    out.append(str(text))
+        return out
+
+    implicits = _mod_texts(item.get('implicits'))
+    explicits = _mod_texts(item.get('explicits'))
+
     lines = ['Rarity: ' + pob_rarity, name, base,
-             '--------', 'Item Level: 82', '--------', 'Implicits: 0']
+             '--------', 'Item Level: 82', '--------']
+    lines.append('Implicits: %d' % len(implicits))
+    lines += implicits
+    if explicits:
+        if implicits:
+            lines.append('--------')
+        lines += explicits
     return '\n'.join(lines)
 
 
@@ -263,7 +329,8 @@ def _skillset_xml_maxroll(step, pob, set_id, title=None):
 
 
 def _itemset_xml_maxroll(equip_variant, items_dict, pob,
-                         set_id, start_item_id, jewels_dict, title=None):
+                         set_id, start_item_id, jewels_dict, title=None,
+                         tree_nodes=None):
     """Build item list + <ItemSet> XML from a Maxroll equipment variant.
 
     Returns ``(item_xml_list, itemset_xml, jewel_sockets_xml, next_item_id)``.
@@ -303,12 +370,11 @@ def _itemset_xml_maxroll(equip_variant, items_dict, pob,
         iid += 1
 
     # Empty sockets for jewel-socket nodes with no jewel
-    if pob and hasattr(pob, 'jewel_socket_nodes'):
-        filled = {s.split('"')[1] for s in jewel_sockets}
-        for node_id_str in jewels_dict or {}:
-            pass  # already covered above
-        # Also emit empties for any passive socket node that has no jewel
-        # (we skip this for Maxroll since we don't have a full node list here)
+    if pob and hasattr(pob, 'jewel_socket_nodes') and tree_nodes:
+        filled = {js.split('nodeId="')[1].split('"')[0] for js in jewel_sockets}
+        for nid in tree_nodes:
+            if nid in pob.jewel_socket_nodes and nid not in filled:
+                jewel_sockets.append('<Socket nodeId="%s" itemId="0"/>' % nid)
 
     jewel_sockets_xml = ('<Sockets>%s</Sockets>' % ''.join(jewel_sockets)
                          if jewel_sockets else '<Sockets/>')
@@ -355,17 +421,17 @@ def convert(planner, profile, variant_idx=None, pob=None,
     tree_version = pob.tree_version if pob else '0_4'
 
     jewels = p_var.get('jewels') or {}
+    history = p_var.get('history') or []
+    set1, _ = _parse_history(history)
     item_xmls, itemset, jewel_sockets_xml, _ = _itemset_xml_maxroll(
         e_var, items_dict, pob, set_id=1, start_item_id=1,
-        jewels_dict=jewels, title=title)
+        jewels_dict=jewels, title=title, tree_nodes=set1)
     skillset = _skillset_xml_maxroll(s_step, pob, set_id=1, title=title)
     spec = _spec_xml_maxroll(
-        p_var.get('history'), info, tree_version, jewel_sockets_xml, title=title)
+        history, info, tree_version, jewel_sockets_xml, title=title)
 
     xml = _document(info, level, [spec], [skillset], item_xmls, [itemset],
                     notes=notes)
-    history = p_var.get('history') or []
-    set1, _ = _parse_history(history)
     n_skills = len(_skill_groups_from_step(s_step))
     return {
         'code': encode(xml),
@@ -381,11 +447,12 @@ def convert(planner, profile, variant_idx=None, pob=None,
 
 def convert_merged(planner, profile, pob=None, class_override=None,
                    ascendancy_override=None, level=90, titles=None,
-                   notes=None):
+                   notes=None, progression_order=True):
     """Merge all Maxroll passive/equipment/skill phases into one PoB2 build.
 
     Each phase becomes a switchable Tree spec, Skill Set, and Item Set.
-    Phases are kept in source order (earliest to latest).
+    With ``progression_order`` (default), phases are sorted ascending by
+    passive node count so leveling phases come before endgame ones.
     """
     p_variants = passive_variants(planner)
     e_variants = equipment_variants(planner)
@@ -403,6 +470,16 @@ def convert_merged(planner, profile, pob=None, class_override=None,
         while len(titles) < n:
             titles.append(f'Phase {len(titles)}')
 
+    if progression_order and len(p_variants) > 1:
+        def _node_count(idx):
+            pv = p_variants[idx] if idx < len(p_variants) else {}
+            return len(_parse_history(pv.get('history'))[0])
+        order = sorted(range(n), key=_node_count)
+        p_variants = [p_variants[i] if i < len(p_variants) else {} for i in order]
+        e_variants = [e_variants[i] if i < len(e_variants) else {} for i in order]
+        s_steps = [s_steps[i] if i < len(s_steps) else {} for i in order]
+        titles = [titles[i] if i < len(titles) else f'Phase {i}' for i in order]
+
     info = _resolve(planner, profile, class_override, ascendancy_override)
     tree_version = pob.tree_version if pob else '0_4'
 
@@ -416,13 +493,14 @@ def convert_merged(planner, profile, pob=None, class_override=None,
         title_i = titles[i] if i < len(titles) else f'Phase {i}'
 
         jewels = p_var.get('jewels') or {}
+        history_i = p_var.get('history') or []
+        set1_i, _ = _parse_history(history_i)
         item_xmls, itemset, jewel_sockets_xml, next_id = _itemset_xml_maxroll(
             e_var, items_dict, pob, set_id=i + 1, start_item_id=next_id,
-            jewels_dict=jewels, title=title_i)
+            jewels_dict=jewels, title=title_i, tree_nodes=set1_i)
         skillset = _skillset_xml_maxroll(s_step, pob, set_id=i + 1, title=title_i)
         spec = _spec_xml_maxroll(
-            p_var.get('history'), info, tree_version, jewel_sockets_xml,
-            title=title_i)
+            history_i, info, tree_version, jewel_sockets_xml, title=title_i)
 
         specs.append(spec)
         skillsets.append(skillset)
