@@ -237,6 +237,8 @@ def _item_text(item, pob):
     rarity = (item.get('rarity') or 'rare').lower()
 
     if rarity == 'unique':
+        if not name:
+            return None  # no name -> can't identify the unique; skip silently
         pob_rarity = 'UNIQUE'
         base = ((pob.unique_bases.get(name.lower()) if pob else None)
                 or _FALLBACK_UNIQUE_BASES.get(name.lower())

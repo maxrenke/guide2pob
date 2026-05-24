@@ -37,40 +37,46 @@ _WEAPON_SLOTS = ('mainHand', 'offHand')
 # Maps lowercase unique name -> PoB2 base type string.
 # Populated from PoB2's Data/Uniques/*.lua; extend as needed.
 _FALLBACK_UNIQUE_BASES: dict = {
+    # -- PoE2 confirmed bases (from PoB2 data files) --------------------------
     # Helmets
-    "atziri's disdain":      "Jade Husk",
-    "crown of eyes":         "Rusted Coif",
-    "the vertex":            "Vaal Mask",
-    "brinerot whalers":      "Wrapped Boots",      # note: actually boots
-    # Body armour
+    "atziri's disdain":      "Gold Circlet",
+    # Gloves
+    "doedre's tenure":       "Stitched Gloves",
+    # Boots
+    "bushwhack":             "Lizardscale Boots",
+    # Rings
+    "snakepit":              "Pearl Ring",
+    # Belts
+    "headhunter":            "Heavy Belt",
+    # Focuses
+    "effigy of cruelty":     "Antler Focus",
+    # Charms
+    "the fall of the axe":   "Silver Charm",
+    "rite of passage":       "Golden Charm",
+    "beira's anguish":       "Dousing Charm",
+    # -- PoE2 probable bases (not yet confirmed from live data) ---------------
     "tabula rasa":           "Simple Robe",
     "cloak of defiance":     "Lacquered Garb",
+    "presence of chayula":   "Onyx Amulet",
+    "the taming":            "Prismatic Ring",
+    "darkness enthroned":    "Studded Belt",
+    "wurm's molt":           "Heavy Belt",
+    "the annihilating light": "Dreaming Quarterstaff",
+    # -- PoE1-only items (kept for PoE1 builds; no PoE2 equivalents) ----------
+    "crown of eyes":         "Rusted Coif",
+    "the vertex":            "Vaal Mask",
+    "brinerot whalers":      "Wrapped Boots",
     "shavronne's wrappings": "Spidersilk Robe",
-    # Gloves
-    "doedre's tenure":       "Scholar's Gloves",
     "aurora's hands":        "Sorcerer Gloves",
-    # Boots
     "wanderlust":            "Wool Shoes",
     "rainbowstride":         "Conjurer Boots",
-    # Amulets
-    "the brass dome":        "Iron Plate",          # note: body in PoE1; skip if wrong
-    "presence of chayula":   "Onyx Amulet",
-    "malachai's artifice":   "Paua Ring",           # note: ring in PoE1
-    # Rings
-    "snakepit":              "Coral Ring",
+    "the brass dome":        "Iron Plate",
+    "malachai's artifice":   "Paua Ring",
     "winterheart":           "Gold Ring",
-    "the taming":            "Prismatic Ring",
     "heartbound loop":       "Moonstone Ring",
-    # Belts
-    "darkness enthroned":    "Studded Belt",
-    "headhunter":            "Leather Belt",
-    "wurm's molt":           "Leather Belt",
-    # Wands
     "lifesprig":             "Driftwood Wand",
     "void battery":          "Prophecy Wand",
-    # Staves / other weapons
-    "the annihilating light": "Judgement Staff",
-    "atziri's acuity":       "Vaal Gloves",         # gloves
+    "atziri's acuity":       "Vaal Gloves",
 }
 
 
@@ -290,9 +296,12 @@ def _jewel_text(jewel, pob):
     """Render a Mobalytics jewel entry as PoB item text."""
     slug = jewel.get('jewelSlug') or ''
     if jewel.get('isUnique'):
-        # Unique jewels: try to derive a readable name from the slug.
-        name = (jewel.get('jewelName') or slug).replace('jewel-', '') \
-            .replace('_', '-').replace('-', ' ').title() or 'Jewel'
+        raw = (jewel.get('jewelName') or slug)
+        # Strip metadata-path prefixes like 'Fouruniquejewel12 ' that
+        # Mobalytics sometimes leaks from internal item IDs.
+        raw = re.sub(r'^[A-Za-z]+\d+\s+', '', raw)
+        name = raw.replace('jewel-', '').replace('_', '-') \
+            .replace('-', ' ').title() or 'Jewel'
         base = name
         rarity = 'UNIQUE'
     else:

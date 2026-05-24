@@ -131,6 +131,34 @@ class TestItemText(unittest.TestCase):
     def test_none_returns_none(self):
         self.assertIsNone(_item_text(None, pob=None))
 
+    def test_unique_with_empty_name_returns_none(self):
+        # Maxroll sometimes has unique items with null/empty name (placeholder
+        # slots); these should be skipped rather than emitting a blank item.
+        item = {'name': '', 'rarity': 'unique', 'base': ''}
+        self.assertIsNone(_item_text(item, pob=None))
+        item2 = {'name': None, 'rarity': 'unique', 'base': None}
+        self.assertIsNone(_item_text(item2, pob=None))
+
+    def test_updated_unique_bases(self):
+        # Verify corrected PoE2 base types match PoB2's actual data.
+        for name, expected_base in [
+            ("Atziri's Disdain",  "Gold Circlet"),
+            ("Doedre's Tenure",   "Stitched Gloves"),
+            ("Snakepit",          "Pearl Ring"),
+            ("Headhunter",        "Heavy Belt"),
+            ("The Fall of the Axe", "Silver Charm"),
+            ("Rite of Passage",   "Golden Charm"),
+            ("Bushwhack",         "Lizardscale Boots"),
+            ("Effigy of Cruelty", "Antler Focus"),
+            ("Beira's Anguish",   "Dousing Charm"),
+        ]:
+            item = {'name': name, 'rarity': 'unique', 'base': ''}
+            text = _item_text(item, pob=None)
+            self.assertIsNotNone(text, f'{name} should not return None')
+            lines = text.split('\n')
+            self.assertEqual(lines[2], expected_base,
+                             f'{name}: expected base {expected_base!r}, got {lines[2]!r}')
+
 
 class TestConvertSingle(unittest.TestCase):
 

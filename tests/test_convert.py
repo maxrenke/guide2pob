@@ -244,6 +244,16 @@ class TestJewelText(unittest.TestCase):
         self.assertTrue(text.startswith('Rarity: UNIQUE'))
         self.assertIn('The Voices', text)
 
+    def test_unique_jewel_strips_metadata_path_prefix(self):
+        # Mobalytics sometimes leaks 'Fouruniquejewel12 Heart Of The Well' as
+        # the jewelName; the numeric-prefixed type code should be stripped.
+        jewel = {'isUnique': True, 'jewelSlug': 'jewel-unique12',
+                 'jewelName': 'Fouruniquejewel12 Heart Of The Well',
+                 'nodeSlug': 'node-5555'}
+        text = _jewel_text(jewel, pob=None)
+        self.assertIn('Heart Of The Well', text)
+        self.assertNotIn('Fouruniquejewel12', text)
+
 
 class TestPriorityNotes(unittest.TestCase):
 
