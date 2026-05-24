@@ -1,6 +1,6 @@
 import unittest
 
-from moba2pob.scrape import (
+from guide2pob.scrape import (
     _extract_preloaded_state, _find_build_document, parse_build,
     variant_labels, slug_from_url, guide_text, build_description, ScrapeError)
 from tests.fixtures import sample_html

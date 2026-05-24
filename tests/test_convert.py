@@ -3,7 +3,7 @@ import re
 import unittest
 import zlib
 
-from moba2pob.convert import (
+from guide2pob.convert import (
     convert, convert_merged, encode, _item_text, gem_name, _tree_nodes,
     _common_item, _attribute_overrides, _weapon_set_tree_nodes,
     _humanize_rune, _jewel_text, _jewel_base_name, _enumerate_slot,

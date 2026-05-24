@@ -1,7 +1,7 @@
 """Tests for cli.py helpers that don't require network or PoB installs."""
 import unittest
 
-from moba2pob.cli import _make_notes, _detect_game, _label_slug, _print_info
+from guide2pob.cli import _make_notes, _detect_game, _label_slug, _print_info
 
 
 class TestDetectGame(unittest.TestCase):
@@ -146,7 +146,7 @@ class TestPrintInfo(unittest.TestCase):
 class TestFallbackUniqueBases(unittest.TestCase):
 
     def test_known_unique_resolved_without_pob(self):
-        from moba2pob.convert import _item_text
+        from guide2pob.convert import _item_text
         item = {'isUnique': True, 'name': 'Tabula Rasa',
                 'explicitDescriptions': []}
         text = _item_text(item, pob=None)
@@ -155,7 +155,7 @@ class TestFallbackUniqueBases(unittest.TestCase):
         self.assertEqual(lines[2], 'Simple Robe')
 
     def test_unknown_unique_falls_back_to_name(self):
-        from moba2pob.convert import _item_text
+        from guide2pob.convert import _item_text
         item = {'isUnique': True, 'name': 'Some Unknown Unique',
                 'explicitDescriptions': []}
         text = _item_text(item, pob=None)
@@ -163,7 +163,7 @@ class TestFallbackUniqueBases(unittest.TestCase):
         self.assertEqual(lines[2], 'Some Unknown Unique')
 
     def test_pob_data_takes_priority_over_fallback(self):
-        from moba2pob.convert import _item_text
+        from guide2pob.convert import _item_text
 
         class _FakePob:
             unique_bases = {'tabula rasa': 'Custom Base From PoB'}

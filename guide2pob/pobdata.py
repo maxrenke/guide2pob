@@ -1,6 +1,6 @@
 """Optional Path of Building (PoE2) data integration.
 
-When a Path of Building Community (PoE2) install is found, moba2pob uses its
+When a Path of Building Community (PoE2) install is found, guide2pob uses its
 data files to resolve accurate gem names, unique item base types, the current
 passive-tree version, and ascendancy detection from passive node IDs.
 

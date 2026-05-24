@@ -24,7 +24,7 @@ def upload_pobbin(code, timeout=30):
     req = urllib.request.Request(
         _POBBIN_POST, data=body, method='POST',
         headers={
-            'User-Agent': 'moba2pob (+https://github.com/maxrenke/moba2pob)',
+            'User-Agent': 'guide2pob (+https://github.com/maxrenke/guide2pob)',
             'Content-Type': 'text/plain',
         })
     try:

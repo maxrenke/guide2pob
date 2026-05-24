@@ -1,4 +1,4 @@
-"""Command-line interface for moba2pob."""
+"""Command-line interface for guide2pob."""
 import os
 import sys
 import re
@@ -13,7 +13,15 @@ from . import __version__
 from .scrape import (
     load_build, build_variants, variant_labels, slug_from_url, ScrapeError,
     build_description, guide_text)
+from .scrape_maxroll import (
+    load_build as load_build_maxroll, passive_variants, equipment_variants,
+    skill_steps, slug_from_url as slug_from_url_maxroll,
+    guide_text as guide_text_maxroll,
+    ScrapeError as MaxrollScrapeError)
 from .convert import convert, convert_merged
+from .convert_maxroll import (
+    convert as convert_maxroll,
+    convert_merged as convert_merged_maxroll)
 from .convert_poe1 import (
     convert as convert_poe1,
     convert_merged as convert_merged_poe1,
@@ -39,7 +47,7 @@ def _class_from_pobcode(doc):
                 return None
             req = urllib.request.Request(
                 f'https://pobb.in/pob/{m.group(1)}',
-                headers={'User-Agent': 'moba2pob'})
+                headers={'User-Agent': 'guide2pob'})
             code = urllib.request.urlopen(req, timeout=10).read().decode().strip()
         std = code.replace('-', '+').replace('_', '/')
         xml = zlib.decompress(base64.b64decode(std + '==')).decode()
@@ -58,15 +66,20 @@ def _detect_game(source):
     return 'poe2'  # default for local files and unknown URLs
 
 
+def _is_maxroll(source):
+    return 'maxroll.gg' in source
+
+
 def _build_parser():
     p = argparse.ArgumentParser(
-        prog='moba2pob',
-        description='Convert a Mobalytics PoE build guide into a '
+        prog='guide2pob',
+        description='Convert a Mobalytics or Maxroll PoE build guide into a '
                     'Path of Building import code.',
         fromfile_prefix_chars='@')
     p.add_argument('source', nargs='+',
-                   help='one or more Mobalytics build URLs or local .html/.json files; '
-                        'prefix a filename with @ to read URLs from it (one per line)')
+                   help='one or more Mobalytics or Maxroll build URLs, or local '
+                        '.html/.json files; prefix a filename with @ to read URLs '
+                        'from it (one per line)')
     p.add_argument('--game', choices=['poe1', 'poe2'],
                    help='game version (default: auto-detected from URL)')
     p.add_argument('--variant', default='all',
@@ -114,7 +127,7 @@ def _build_parser():
     p.add_argument('--no-pob', action='store_true',
                    help='ignore any Path of Building install')
     p.add_argument('--version', action='version',
-                   version=f'moba2pob {__version__}')
+                   version=f'guide2pob {__version__}')
     return p
 
 
@@ -466,9 +479,132 @@ def _write(path, text):
         f.write(text)
 
 
+# -- Maxroll helpers ---------------------------------------------------------
+
+def _run_maxroll(source, args):
+    """Process a Maxroll build guide or planner URL."""
+    pob = _load_pob(args)
+    try:
+        profile, planner, guide_html = load_build_maxroll(source)
+    except MaxrollScrapeError as e:
+        print(f'error: {e}', file=sys.stderr)
+        return 2
+
+    p_vars = passive_variants(planner)
+    e_vars = equipment_variants(planner)
+    s_steps_list = skill_steps(planner)
+    n = max(len(p_vars), len(e_vars), len(s_steps_list), 1)
+
+    name = profile.get('name', 'build')
+    print(f'build: {name}  ({n} phase{"s" if n != 1 else ""})',
+          file=sys.stderr)
+    print('game:  PoE2', file=sys.stderr)
+
+    # Build titles from the longest list
+    longest = max(p_vars, e_vars, s_steps_list, key=lambda lst: len(lst))
+    titles = [(v.get('name') if isinstance(v, dict) else f'Phase {i}')
+              for i, v in enumerate(longest)]
+    while len(titles) < n:
+        titles.append(f'Phase {len(titles)}')
+
+    slug = slug_from_url_maxroll(source) or 'build'
+
+    notes_parts = [name, source]
+    if guide_html:
+        desc = build_description(guide_html)
+        if desc and desc.lower() != name.lower():
+            notes_parts.append(desc)
+        gt = guide_text_maxroll(guide_html)
+        if gt:
+            notes_parts.append(gt)
+    if titles:
+        lines = ['Phases:'] + [f'  {i}: {t}' for i, t in enumerate(titles)]
+        notes_parts.append('\n'.join(lines))
+    notes = '\n\n'.join(p for p in notes_parts if p)
+
+    if args.info:
+        print(f'name:     {name}')
+        print(f'slug:     {slug}')
+        asc = planner.get('ascendancy', '')
+        print(f'class:    {asc}')
+        print(f'phases:   {n}')
+        for i, t in enumerate(titles):
+            n_nodes = len(_parse_history(p_vars[i].get('history') if i < len(p_vars) else {})[0])
+            print(f'  [{i}] {t:<30}  {n_nodes} nodes')
+        return 0
+
+    if args.json:
+        json.dump(planner, sys.stdout, indent=1)
+        return 0
+
+    if args.merge:
+        try:
+            meta = convert_merged_maxroll(
+                planner, profile, pob=pob,
+                class_override=args.cls,
+                ascendancy_override=args.ascendancy,
+                level=args.level, titles=titles, notes=notes)
+        except ValueError as e:
+            print(f'error: {e}', file=sys.stderr)
+            return 1
+        print(f"# merged: {meta['class']} / {meta['ascendancy']}  "
+              f"- {meta['variant_count']} phases, tree {meta['tree_version']}",
+              file=sys.stderr)
+        _output(meta, slug, None, args, None, game='poe2')
+        return 0
+
+    # Single variant
+    variant_arg = args.variant if args.variant is not None else str(n - 1)
+    if variant_arg == 'all':
+        indices = list(range(n))
+    else:
+        try:
+            indices = [int(variant_arg)]
+        except ValueError:
+            print(f'error: bad --variant {variant_arg!r}', file=sys.stderr)
+            return 2
+
+    out_dir = args.out if (args.out and len(indices) > 1) else None
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+
+    rc = 0
+    for idx in indices:
+        title = titles[idx] if idx < len(titles) else None
+        try:
+            meta = convert_maxroll(
+                planner, profile, variant_idx=idx, pob=pob,
+                class_override=args.cls,
+                ascendancy_override=args.ascendancy,
+                level=args.level, title=title, notes=notes)
+        except ValueError as e:
+            print(f'error: phase {idx}: {e}', file=sys.stderr)
+            rc = 1
+            continue
+        print(f"# phase {idx} \"{title or ''}\": {meta['class']} / "
+              f"{meta['ascendancy']}  - {meta['node_count']} nodes, "
+              f"{meta['skill_count']} skill groups, tree {meta['tree_version']}",
+              file=sys.stderr)
+        _output(meta, slug, idx, args, out_dir, game='poe2',
+                label=title)
+    return rc
+
+
+def _parse_history(history):
+    """Extract set-1 node IDs from a Maxroll passive history (for --info)."""
+    from .convert_maxroll import _parse_history as _ph
+    return _ph(history)
+
+
+# -- dispatch ----------------------------------------------------------------
+
 def _process_one(source, args):
     """Process a single source URL/file. Returns an exit code (0=ok, 1=err, 2=fatal)."""
     args.source = source  # make source available to helpers that read args.source
+
+    if _is_maxroll(source):
+        return _run_maxroll(source, args)
+
     try:
         doc, html = load_build(source)
     except ScrapeError as e:

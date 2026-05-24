@@ -4,7 +4,7 @@ import re
 import unittest
 import zlib
 
-from moba2pob.convert_poe1 import (
+from guide2pob.convert_poe1 import (
     decode_pobcode, _class_info_from_xml, _item_text, _jewel_text,
     _mastery_string, _skill_groups, _tree_nodes, encode, convert,
     convert_merged)

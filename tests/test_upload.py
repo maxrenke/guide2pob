@@ -1,6 +1,6 @@
 import unittest
 
-from moba2pob.upload import _to_urlsafe
+from guide2pob.upload import _to_urlsafe
 
 
 class TestUrlSafe(unittest.TestCase):

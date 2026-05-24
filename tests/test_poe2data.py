@@ -1,6 +1,6 @@
 import unittest
 
-from moba2pob.poe2data import resolve_class, CLASSES, ASCENDANCY_TO_CLASS
+from guide2pob.poe2data import resolve_class, CLASSES, ASCENDANCY_TO_CLASS
 
 
 class TestPoe2Data(unittest.TestCase):
