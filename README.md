@@ -54,6 +54,28 @@ guide2pob <url> --variant all -o out/ --xml
 guide2pob <url> --merge --upload
 ```
 
+### Sync an existing PoB Builds folder
+
+`guide2pob-sync` walks a Path of Building Builds directory, re-scrapes every
+XML that contains a guide URL in its `<Notes>` block, and rewrites the ones
+that substantively changed (ignoring PoB runtime state like `PlayerStat`
+and `Buffs`). Originals are copied into `_backup_YYYYMMDD/` first.
+
+```sh
+# Refresh every build in the auto-detected PoB2 Builds dir
+guide2pob-sync
+
+# Or point at a specific directory and preview without writing
+guide2pob-sync "C:\path\to\Path of Building (PoE2)\Builds" --dry-run
+
+# Audit against a specific patch tag (default 0.5)
+guide2pob-sync --target-patch 0.5
+```
+
+The report shows class/ascendancy, the patch number parsed from the title
+or notes, and flags any builds tagged for a different patch.
+
+
 Paste the resulting code into Path of Building 2:
 **Import/Export build -> Import from Code**.
 
