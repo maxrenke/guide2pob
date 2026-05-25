@@ -171,3 +171,66 @@ class PoBData:
                     if len(lines) >= 2:
                         self._uniques[lines[0].strip().lower()] = lines[1].strip()
         return self._uniques
+
+    # -- attribute nodes -------------------------------------------------
+    @property
+    def attribute_options(self):
+        """Map of attribute node parent_id -> {option_0based_idx: (attr_name, option_node_id)}.
+
+        Attribute nodes in PoE2 let players pick Strength/Dexterity/Intelligence.
+        PoB tracks which option was chosen via AttributeOverride strNodes/dexNodes/intNodes.
+        """
+        if not hasattr(self, '_attribute_options'):
+            result = {}
+            tree = self._tree
+            # Find all isAttribute=true nodes and parse their options
+            for m in re.finditer(r'\[(\d+)\]=\{', tree):
+                node_id = m.group(1)
+                block_start = m.start()
+                # Quick check: isAttribute before scanning the full block
+                snippet = tree[m.end():m.end() + 2000]
+                if 'isAttribute=true' not in snippet:
+                    continue
+                # Parse options={[1]={id=X,name="Y"},...}
+                opts_m = re.search(r'options=\{(.*?)\n\t\t\}', snippet, re.S)
+                if not opts_m:
+                    continue
+                opts_text = opts_m.group(1)
+                options = {}
+                for opt in re.finditer(
+                        r'\[(\d+)\]=\{.*?id=(\d+).*?name="([^"]+)"', opts_text, re.S):
+                    lua_idx = int(opt.group(1)) - 1  # convert 1-based to 0-based
+                    opt_id = opt.group(2)
+                    opt_name = opt.group(3).lower()
+                    options[lua_idx] = (opt_name, opt_id)
+                if options:
+                    result[node_id] = options
+            self._attribute_options = result
+        return self._attribute_options
+
+    # -- mod texts -------------------------------------------------------
+    @property
+    def mod_texts(self):
+        """mod_id -> display text string (from all Mod*.lua data files).
+
+        Text strings use (min-max) range notation, e.g.
+        '+(5-8) to Strength'.  Callers substitute actual rolled values.
+        """
+        if not hasattr(self, '_mod_texts'):
+            self._mod_texts = {}
+            # Pattern: ["ModId"] = { ...optional fields..., "mod text", statOrder
+            pattern = re.compile(
+                r'\["([A-Za-z][A-Za-z0-9_]+)"\]\s*=\s*\{.*?"([^"]+)",\s*statOrder',
+                re.S)
+            mod_files = [
+                'ModItem.lua', 'ModItemExclusive.lua', 'ModCorrupted.lua',
+                'ModCharm.lua', 'ModFlask.lua', 'ModJewel.lua',
+            ]
+            for fname in mod_files:
+                fpath = os.path.join(self.path, 'Data', fname)
+                if not os.path.isfile(fpath):
+                    continue
+                for m in pattern.finditer(open(fpath, encoding='utf-8').read()):
+                    if m.group(1) not in self._mod_texts:
+                        self._mod_texts[m.group(1)] = m.group(2)
+        return self._mod_texts

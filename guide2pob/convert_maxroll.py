@@ -181,7 +181,7 @@ _BASE_MAP = [
     ('fourflasklife',    'Ultimate Life Flask'),
     ('fourflaskmana',    'Ultimate Mana Flask'),
     ('fourflask',        'Ultimate Life Flask'),
-    ('fourcharm',        'Quicksilver Flask'),
+    ('fourcharm',        'Silver Charm'),
     # Jewels
     ('jeweldiamond',     'Diamond'),
     ('jewelint',         'Sapphire'),
@@ -229,54 +229,133 @@ _SLOT_MAP = {
 }
 
 
+def _format_mod_text(template, stat_values):
+    """Substitute actual stat values into a PoB mod text template.
+
+    Templates use ``(min-max)`` range notation, e.g. '+(5-8) to Strength'.
+    Values are substituted in the order they appear in ``stat_values``.
+    """
+    vals = iter(v for v in stat_values if isinstance(v, (int, float)))
+    def _sub(m):
+        try:
+            v = next(vals)
+            return str(int(v) if v == int(v) else v)
+        except StopIteration:
+            return m.group(0)
+    return re.sub(r'\(\d+-\d+\)', _sub, template)
+
+
+# Stat key -> PoB-readable text template for rune/soul-core stats that are
+# not expressed as named mods.  Values use {v} as the placeholder.
+_RUNE_STAT_TEXT = {
+    'base_fire_damage_resistance_%':          '+{v}% to Fire Resistance',
+    'base_cold_damage_resistance_%':          '+{v}% to Cold Resistance',
+    'base_lightning_damage_resistance_%':     '+{v}% to Lightning Resistance',
+    'base_chaos_damage_resistance_%':         '+{v}% to Chaos Resistance',
+    'local_armour_+%':                        '{v}% increased Armour',
+    'local_evasion_rating_+%':                '{v}% increased Evasion Rating',
+    'local_energy_shield_+%':                 '{v}% increased Energy Shield',
+    'local_armour_and_evasion_+%':            '{v}% increased Armour and Evasion',
+    'local_armour_and_energy_shield_+%':      '{v}% increased Armour and Energy Shield',
+    'local_evasion_and_energy_shield_+%':     '{v}% increased Evasion and Energy Shield',
+    'local_armour_and_evasion_and_energy_shield_+%':
+        '{v}% increased Armour, Evasion and Energy Shield',
+    'energy_shield_recharge_rate_+%':        '{v}% increased Energy Shield Recharge Rate',
+    'allies_in_presence_damage_+%':          '{v}% increased Damage for you and nearby Allies',
+    'reservation_efficiency_+%_of_minion_skills':
+        '{v}% increased Reservation Efficiency of Minion Skills',
+    'enemies_damage_taken_+%_while_cursed':  'Cursed Enemies take {v}% increased Damage',
+}
+
+
 def _item_text(item, pob):
     """Render a Maxroll item dict as PoB2 item text."""
     if not item:
         return None
     name = (item.get('name') or '').strip()
     rarity = (item.get('rarity') or 'rare').lower()
+    base = _base_type_from_path(item.get('base'), pob)
 
     if rarity == 'unique':
-        if not name:
-            return None  # no name -> can't identify the unique; skip silently
         pob_rarity = 'UNIQUE'
-        base = ((pob.unique_bases.get(name.lower()) if pob else None)
-                or _FALLBACK_UNIQUE_BASES.get(name.lower())
-                or name)
+        if not base:
+            base = 'Item'
+        if not name:
+            # No display name available from Maxroll data; use PoB unique
+            # lookup by base type as a best-effort fallback.
+            if pob:
+                for uname, ubase in pob.unique_bases.items():
+                    if ubase == base:
+                        name = uname.title()
+                        break
+            if not name:
+                name = base
+        else:
+            # Validate/override base from PoB unique data
+            pob_base = ((pob.unique_bases.get(name.lower()) if pob else None)
+                        or _FALLBACK_UNIQUE_BASES.get(name.lower()))
+            if pob_base:
+                base = pob_base
     elif rarity == 'magic':
         pob_rarity = 'MAGIC'
-        base = _base_type_from_path(item.get('base'), pob) or 'Item'
-        name = base  # magic items use base as display name in PoB
+        if not base:
+            base = 'Item'
+        name = base
     else:
         pob_rarity = 'RARE'
-        base = _base_type_from_path(item.get('base'), pob) or 'Item'
+        if not base:
+            base = 'Item'
         if not name:
             name = base
 
-    def _mod_texts(raw):
-        """Extract mod strings from a Maxroll mod list (various shapes)."""
+    mod_lookup = pob.mod_texts if pob and hasattr(pob, 'mod_texts') else {}
+    mods_section = item.get('mods') or {}
+    stats_section = item.get('stats') or {}
+
+    def _resolve_mods(section_name):
+        """Return list of human-readable mod text strings for a mods section."""
+        section = mods_section.get(section_name) or {}
         out = []
-        for m in (raw or []):
-            if isinstance(m, str):
-                out.append(m)
-            elif isinstance(m, dict):
-                text = (m.get('text') or m.get('value') or m.get('description')
-                        or m.get('name') or '')
-                if text:
-                    out.append(str(text))
+        for mod_id, stat_dict in section.items():
+            template = mod_lookup.get(mod_id)
+            if template:
+                values = list((stat_dict or {}).values()) if isinstance(stat_dict, dict) else []
+                out.append(_format_mod_text(template, values))
+            # No fallback: unknown mods are silently omitted (PoB won't parse them)
         return out
 
-    implicits = _mod_texts(item.get('implicits'))
-    explicits = _mod_texts(item.get('explicits'))
+    implicits = _resolve_mods('implicit')
+    enchants = _resolve_mods('enchant')
+    explicits = _resolve_mods('explicit')
 
+    # Rune / soul-core stats are in stats.rune as {stat_key: value}.
+    rune_stats = stats_section.get('rune') or {}
+    rune_lines = []
+    n_sockets = len(item.get('sockets') or [])
+    for stat_key, val in rune_stats.items():
+        tmpl = _RUNE_STAT_TEXT.get(stat_key)
+        if tmpl:
+            rune_lines.append(tmpl.format(v=int(val) if val == int(val) else val))
+
+    ilvl = item.get('ilvl') or 82
     lines = ['Rarity: ' + pob_rarity, name, base,
-             '--------', 'Item Level: 82', '--------']
+             '--------', 'Item Level: %d' % ilvl]
+    if n_sockets:
+        lines += ['--------', 'Sockets: ' + ' '.join(['S'] * n_sockets)]
+    lines.append('--------')
+    # Enchants (anointments) go before Implicits: N, matching PoB2 item format.
+    if enchants:
+        lines += enchants
+        lines.append('--------')
     lines.append('Implicits: %d' % len(implicits))
     lines += implicits
     if explicits:
         if implicits:
             lines.append('--------')
         lines += explicits
+    if rune_lines:
+        lines.append('--------')
+        lines += rune_lines
     return '\n'.join(lines)
 
 
@@ -285,8 +364,40 @@ def _item_text(item, pob):
 # _skillset_xml /_itemset_xml -- or we build our own XML directly.
 # ---------------------------------------------------------------------------
 
+def _attribute_override_nodes(attributes_dict, pob):
+    """Convert Maxroll attribute choices to PoB strNodes/dexNodes/intNodes.
+
+    ``attributes_dict`` is ``{parent_node_id_str: option_idx_int}`` from
+    the Maxroll passive variant.  Option indices are 0-based (0=Strength,
+    1=Dexterity, 2=Intelligence by tree option order).
+
+    PoB's AttributeOverride expects the PARENT node IDs categorised by
+    which attribute was chosen - not the option sub-node IDs.
+    """
+    str_nodes, dex_nodes, int_nodes = [], [], []
+    if not attributes_dict or not pob:
+        return str_nodes, dex_nodes, int_nodes
+    opts_map = getattr(pob, 'attribute_options', {})
+    for node_id, chosen_idx in (attributes_dict or {}).items():
+        node_opts = opts_map.get(str(node_id))
+        if not node_opts:
+            continue
+        entry = node_opts.get(int(chosen_idx))
+        if not entry:
+            continue
+        attr_name, _opt_node_id = entry
+        # Use parent node_id (PoB looks up which option was chosen internally)
+        if 'strength' in attr_name:
+            str_nodes.append(str(node_id))
+        elif 'dexterity' in attr_name:
+            dex_nodes.append(str(node_id))
+        elif 'intelligence' in attr_name:
+            int_nodes.append(str(node_id))
+    return str_nodes, dex_nodes, int_nodes
+
+
 def _spec_xml_maxroll(history, cls_info, tree_version, jewel_sockets_xml,
-                      title=None):
+                      title=None, attributes=None, pob=None):
     """Build <Spec> XML from a Maxroll passive-tree history."""
     set1, set2 = _parse_history(history)
     attrs = (
@@ -299,12 +410,16 @@ def _spec_xml_maxroll(history, cls_info, tree_version, jewel_sockets_xml,
     if title:
         attrs = 'title="%s" %s' % (_esc(title), attrs)
 
+    str_nodes, dex_nodes, int_nodes = _attribute_override_nodes(attributes, pob)
+
     children = []
     if set2:
         children.append('<WeaponSet2 nodes="%s"/>' % ','.join(set2))
     children.append(jewel_sockets_xml or '<Sockets/>')
-    children.append('<Overrides><AttributeOverride strNodes="" dexNodes="" '
-                    'intNodes=""/></Overrides>')
+    children.append(
+        '<Overrides><AttributeOverride strNodes="%s" dexNodes="%s" '
+        'intNodes="%s"/></Overrides>'
+        % (','.join(str_nodes), ','.join(dex_nodes), ','.join(int_nodes)))
     return '<Spec %s>\n%s\n</Spec>' % (attrs, '\n'.join(children))
 
 
@@ -316,10 +431,11 @@ def _skillset_xml_maxroll(step, pob, set_id, title=None):
         for g in grp['gems']:
             name = _gem_name(g['id'], pob)
             level = g.get('level') or 20
+            quality = g.get('quality') or 0
             gems_xml.append(
-                '<Gem level="%d" quality="0" qualityId="Default" '
+                '<Gem level="%d" quality="%d" qualityId="Default" '
                 'enabled="true" enableGlobal1="true" enableGlobal2="true" '
-                'nameSpec="%s"/>' % (level, _esc(name)))
+                'nameSpec="%s"/>' % (level, quality, _esc(name)))
         if gems_xml:
             first_name = _gem_name(grp['gems'][0]['id'], pob)
             skills_xml.append(
@@ -430,7 +546,8 @@ def convert(planner, profile, variant_idx=None, pob=None,
         jewels_dict=jewels, title=title, tree_nodes=set1)
     skillset = _skillset_xml_maxroll(s_step, pob, set_id=1, title=title)
     spec = _spec_xml_maxroll(
-        history, info, tree_version, jewel_sockets_xml, title=title)
+        history, info, tree_version, jewel_sockets_xml, title=title,
+        attributes=p_var.get('attributes'), pob=pob)
 
     xml = _document(info, level, [spec], [skillset], item_xmls, [itemset],
                     notes=notes)
@@ -502,7 +619,8 @@ def convert_merged(planner, profile, pob=None, class_override=None,
             jewels_dict=jewels, title=title_i, tree_nodes=set1_i)
         skillset = _skillset_xml_maxroll(s_step, pob, set_id=i + 1, title=title_i)
         spec = _spec_xml_maxroll(
-            history_i, info, tree_version, jewel_sockets_xml, title=title_i)
+            history_i, info, tree_version, jewel_sockets_xml, title=title_i,
+            attributes=p_var.get('attributes'), pob=pob)
 
         specs.append(spec)
         skillsets.append(skillset)

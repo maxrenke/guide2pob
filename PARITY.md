@@ -9,49 +9,66 @@ N/A=feature not applicable (source data unavailable).
 | Passive tree (main nodes) | OK | OK | OK | |
 | Passive tree (ascendancy nodes) | OK | OK | OK | |
 | Weapon-set 2 tree nodes | OK | OK | OK | WeaponSet2 XML |
-| Attribute overrides (str/dex/int) | OK | hardcoded empty | N/A | Maxroll planner has no attr-override data |
+| Attribute overrides (str/dex/int) | OK | OK | OK | Both emit AttributeOverride XML; Maxroll requires PoB install |
 | Jewels in tree sockets | OK | OK | OK | |
-| Empty jewel socket (no jewel) | OK | FIXED | OK | #2 done |
+| Empty jewel socket (no jewel) | OK | OK | OK | |
 | Ascendancy auto-detection | voting on nodes | internal ID lookup | OK | Different methods, both work |
 | Items - rare | OK | OK | OK | |
-| Items - unique w/ fallback base | OK | FIXED | OK | #3 done - imports _FALLBACK_UNIQUE_BASES |
+| Items - unique w/ fallback base | OK | OK | OK | |
 | Items - magic | not supported | OK | N/A | Mobalytics doesn't expose magic items |
-| Item implicits | OK | FIXED | OK | #5 done |
-| Item explicits | OK | FIXED | OK | #5 done |
-| Item runes / sockets | OK | not in Maxroll data | N/A | Maxroll planner has no rune data |
-| Item anointment | OK | not in Maxroll data | N/A | Maxroll planner has no anointment data |
+| Item level | hardcoded 82 | reads from data | MAXROLL-ONLY | Mobalytics source data has no ilvl |
+| Item implicits | text strings | mod ID + value lookup | OK | Maxroll uses PoB2 ModItem.lua for exact text |
+| Item explicits | text strings | mod ID + value lookup | OK | |
+| Item enchants / anointments | before Implicits: header | before Implicits: header | OK | Both place enchants before Implicits: N line |
+| Item runes / sockets | name-only (Rune: X) | stat values from stats.rune | GAP | Mobalytics has no rune values; Maxroll exports net stat effect |
 | Weapon swap slot | OK | OK | OK | |
-| Base type map (weapons/armor) | N/A | EXPANDED | OK | #3b done - added wands/bows/sceptres/etc |
+| Base type map (weapons/armor/jewels) | N/A | OK | OK | Full _BASE_MAP in convert_maxroll.py |
 | Gem name resolution | pob lookup + slug prettify | pob lookup + CamelCase split | OK | Both work |
-| Gem level | hardcoded 20 | reads from data | N/A | Mobalytics doesn't expose gem level |
-| Gem quality | hardcoded 0 | hardcoded 0 | OK | |
+| Gem level | hardcoded 20 | reads from data | MAXROLL-ONLY | Mobalytics source data has no gem level |
+| Gem quality | hardcoded 0 | reads from data | MAXROLL-ONLY | Mobalytics source data has no gem quality |
 | Single-variant convert | OK | OK | OK | |
 | Multi-variant / merged convert | OK | OK | OK | |
-| Progression order sort | OK (by node count) | FIXED | OK | #9 done |
+| Progression order sort | OK (by node count) | OK (by node count) | OK | |
 | Notes - URL + build name | OK | OK | OK | |
 | Notes - og:description | OK | OK | OK | |
-| Notes - guide text | OK (lexical blocks) | OK (main-article) | OK | |
-| Notes - ascendancy priority list | OK | not in Maxroll data | N/A | Maxroll has no priority list concept |
-| Notes - equipment priority list | OK | not in Maxroll data | N/A | |
-| Notes - gem priority list | OK | not in Maxroll data | N/A | |
+| Notes - guide text | OK (lexical blocks) | OK (main-article div) | OK | |
+| Notes - ascendancy priority list | OK | not in Maxroll data | MOBA-ONLY | Maxroll has no priority list concept |
+| Notes - equipment priority list | OK | not in Maxroll data | MOBA-ONLY | |
+| Notes - gem priority list | OK | not in Maxroll data | MOBA-ONLY | |
+| Scraper layout compat | single format | old (planner key) + new (profiles[]) | OK | Both Maxroll layouts supported |
 | --info command | OK | OK | OK | |
 | --json command | OK | OK | OK | |
-| Test coverage | high | FIXED | OK | #11 done - 35 new tests |
+| Test coverage | high | high | OK | 182 tests total |
 
 ## Work log
 
-- [x] #2 Maxroll: empty jewel socket emission fix - fixed dead loop
-- [x] #3 Maxroll: unique base fallback dict - imports from convert.py
-- [x] #3b Maxroll: base type map expansion - wands, bows, sceptres, shields, axes, maces, swords, claws, daggers, crossbows, flails, spears
-- [x] #5 Maxroll: item implicits + explicits - handles string/dict/text/value/description formats
-- [x] #9 Maxroll: progression order sort - convert_merged now accepts progression_order param, cli passes no_reorder flag
-- [x] #11 Maxroll: test coverage - added tests/test_convert_maxroll.py with 35 tests and sample_maxroll_planner fixture
+### Session 1 (prior)
+- [x] #2 Maxroll: empty jewel socket emission fix
+- [x] #3 Maxroll: unique base fallback dict
+- [x] #3b Maxroll: base type map expansion
+- [x] #5 Maxroll: item implicits + explicits (old format)
+- [x] #9 Maxroll: progression order sort
+- [x] #11 Maxroll: test coverage (35 new tests)
 
-## Intentional N/A items
+### Session 2 (2026-05-25)
+- [x] Maxroll scraper: new profiles[] layout support (2026 Maxroll update)
+- [x] Maxroll items: rewrote _item_text to use mods dict + PoB2 mod_texts lookup
+- [x] Maxroll items: real ilvl from item data
+- [x] Maxroll items: rune/soul-core stats via _RUNE_STAT_TEXT (net stat effect)
+- [x] Maxroll items: enchant mods placed before Implicits: N (anointment-correct)
+- [x] Maxroll gems: real gem level + quality from data
+- [x] Maxroll attribute overrides: implemented via PoBData.attribute_options
+- [x] PoBData: added attribute_options property (parses tree.lua isAttribute nodes)
+- [x] PoBData: added mod_texts property (parses ModItem.lua + 5 other Mod*.lua files)
+- [x] Tests: updated fixtures to new item format; added _FakePobMods; 182 tests passing
+- [x] Charm base type: fixed fourcharm -> Silver Charm (was Quicksilver Flask, a PoE1 item)
 
-- Attribute overrides: Maxroll planner stores raw node IDs with no str/dex/int labeling
-- Item runes/soul cores: not present in Maxroll planner data
-- Item anointment: not present in Maxroll planner data
-- Priority lists (ascendancy/equipment/gem): Maxroll has no equivalent concept
+## Intentional N/A / structural gaps
+
+- Priority lists (ascendancy/equipment/gem): Maxroll has no equivalent concept in planner data
 - Magic item rarity: Mobalytics doesn't expose magic items (all non-unique are RARE)
-- Gem level in Mobalytics: source data doesn't include gem levels (hardcoded 20 is correct)
+- Gem level/quality in Mobalytics: source data doesn't include these values
+- Item level in Mobalytics: source data doesn't include ilvl (hardcoded 82)
+- Rune stat values in Mobalytics: source provides rune names only; PoB cannot compute rune effects
+- Attribute overrides without PoB install: requires tree.lua parsing; emits empty lists gracefully
+- Unique display names without PoB install: falls back to base type name; stats still export correctly

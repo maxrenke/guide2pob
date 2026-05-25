@@ -68,11 +68,18 @@ def _parse_planner_html(html):
         outer = json.loads(raw)
     except json.JSONDecodeError as e:
         raise ScrapeError(f"could not parse planner data JSON: {e}") from e
-    # The outer object has keys: 'planner' (passives/skills/equipment/ascendancy),
-    # 'items' (item lookup dict), 'embeds', etc.
+    # Old format: outer['planner'] contains passives/skills/equipment directly.
+    # New format (2026+): outer['profiles'] is a list; active index in outer['activeProfile'].
     inner = outer.get('planner')
     if not inner:
-        raise ScrapeError("planner data has no 'planner' key - layout may have changed")
+        profiles = outer.get('profiles')
+        if not profiles:
+            raise ScrapeError("planner data has no 'planner' or 'profiles' key - layout may have changed")
+        idx = outer.get('activeProfile') or 0
+        try:
+            inner = profiles[idx]
+        except (IndexError, TypeError):
+            inner = profiles[0]
     # Merge item lookup into the inner planner dict so callers have one object.
     inner = dict(inner)
     inner['items'] = outer.get('items') or {}

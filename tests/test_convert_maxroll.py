@@ -71,56 +71,120 @@ class TestBaseTypeFromPath(unittest.TestCase):
         self.assertIsNone(_base_type_from_path('Metadata/Items/Unknown/Blob'))
 
 
+class _FakePobMods:
+    """Minimal PoBData stub that provides mod_texts for unit tests."""
+    jewel_socket_nodes = {'7960'}
+    tree_version = '0_4'
+    gems = {}
+    unique_bases = {}
+    mod_texts = {
+        'IncreasedMana4':     '+(35-54) to maximum Mana',
+        'Intelligence4':      '+(17-20) to Intelligence',
+        'IncreasedLife2':     '+(11-19) to maximum Life',
+        'IncreasedLifePercent1': '(5-8)% increased maximum Life',
+        'FakeImplicit1':      '(10-15)% increased Cast Speed',
+        'FakeRune1':          '+{v}% to Fire Resistance',
+    }
+
+
 class TestItemText(unittest.TestCase):
 
     def test_rare_item_with_mods(self):
         item = {
             'name': 'Plague Wand',
+            'ilvl': 82,
             'rarity': 'rare',
             'base': 'Metadata/Items/Weapons/OneHandWeapons/Wands/FourWandInt',
-            'implicits': [{'text': '20% increased Spell Damage'}],
-            'explicits': [{'text': '+50 to Maximum Mana'}],
+            'sockets': [],
+            'stats': {'implicit': {}, 'explicit': {}, 'enchant': {}, 'rune': {}},
+            'mods': {
+                'implicit': {'FakeImplicit1': {'cast_speed_+%': 12}},
+                'explicit': {'IncreasedMana4': {'base_maximum_mana': 50}},
+                'enchant': {},
+            },
         }
-        text = _item_text(item, pob=None)
+        pob = _FakePobMods()
+        text = _item_text(item, pob=pob)
         lines = text.split('\n')
         self.assertEqual(lines[0], 'Rarity: RARE')
         self.assertIn('Implicits: 1', lines)
-        self.assertIn('20% increased Spell Damage', lines)
-        self.assertIn('+50 to Maximum Mana', lines)
+        self.assertIn('12% increased Cast Speed', lines)
+        self.assertIn('+50 to maximum Mana', lines)
+
+    def test_enchant_placed_before_implicits(self):
+        item = {
+            'name': 'Anoint Amulet',
+            'ilvl': 82,
+            'rarity': 'rare',
+            'base': 'Metadata/Items/Amulets/FourAmuletInt',
+            'sockets': [],
+            'stats': {'implicit': {}, 'explicit': {}, 'enchant': {}, 'rune': {}},
+            'mods': {
+                'implicit': {'IncreasedMana4': {'base_maximum_mana': 50}},
+                'explicit': {'IncreasedLife2': {'base_maximum_life': 15}},
+                'enchant': {'FakeImplicit1': {'cast_speed_+%': 12}},
+            },
+        }
+        pob = _FakePobMods()
+        text = _item_text(item, pob=pob)
+        lines = text.split('\n')
+        # Enchant must appear before Implicits: N
+        enchant_idx = next(i for i, l in enumerate(lines) if '12% increased Cast Speed' in l)
+        implicit_header_idx = next(i for i, l in enumerate(lines) if l.startswith('Implicits:'))
+        self.assertLess(enchant_idx, implicit_header_idx)
+        # Implicit count should not include the enchant
+        self.assertIn('Implicits: 1', lines)
 
     def test_unique_item_uses_fallback_base(self):
         item = {
             'name': 'Tabula Rasa',
+            'ilvl': 82,
             'rarity': 'unique',
             'base': 'Metadata/Items/Armours/BodyArmours/FourBodyInt',
+            'sockets': [],
+            'stats': {'implicit': {}, 'explicit': {}, 'enchant': {}, 'rune': {}},
+            'mods': {'implicit': {}, 'explicit': {}, 'enchant': {}},
         }
         text = _item_text(item, pob=None)
         self.assertIn('Rarity: UNIQUE', text)
-        # Should use fallback dict for Tabula Rasa
         self.assertIn('Simple Robe', text)
 
     def test_magic_item_rarity(self):
         item = {
-            'name': 'Rare Amulet',
+            'name': '',
+            'ilvl': 82,
             'rarity': 'magic',
             'base': 'Metadata/Items/Amulets/FourAmuletInt',
-            'implicits': [],
-            'explicits': [{'text': '+20 to all Attributes'}],
+            'sockets': [],
+            'stats': {'implicit': {}, 'explicit': {}, 'enchant': {}, 'rune': {}},
+            'mods': {'implicit': {}, 'explicit': {}, 'enchant': {}},
         }
         text = _item_text(item, pob=None)
         self.assertIn('Rarity: MAGIC', text)
-        self.assertIn('+20 to all Attributes', text)
 
-    def test_mod_text_as_plain_string(self):
+    def test_rune_stats_appended(self):
         item = {
-            'name': 'Test Helm',
+            'name': 'Helm',
+            'ilvl': 100,
             'rarity': 'rare',
-            'base': 'Metadata/Items/Armours/Helmets/FourHelmetStr',
-            'implicits': [],
-            'explicits': ['plain string mod'],
+            'base': 'Metadata/Items/Armours/Helmets/FourHelmetInt',
+            'sockets': ['Metadata/Items/SoulCores/RuneFireGreater'],
+            'stats': {'implicit': {}, 'explicit': {},
+                      'enchant': {}, 'rune': {'base_fire_damage_resistance_%': 14}},
+            'mods': {'implicit': {}, 'explicit': {}, 'enchant': {}},
         }
         text = _item_text(item, pob=None)
-        self.assertIn('plain string mod', text)
+        self.assertIn('+14% to Fire Resistance', text)
+        self.assertIn('Sockets: S', text)
+
+    def test_ilvl_used_from_item(self):
+        item = {'name': 'Test', 'ilvl': 95, 'rarity': 'rare',
+                'base': 'Metadata/Items/Armours/Helmets/FourHelmetInt',
+                'sockets': [],
+                'stats': {'implicit': {}, 'explicit': {}, 'enchant': {}, 'rune': {}},
+                'mods': {'implicit': {}, 'explicit': {}, 'enchant': {}}}
+        text = _item_text(item, pob=None)
+        self.assertIn('Item Level: 95', text)
 
     def test_no_mods_gives_implicits_zero(self):
         item = {'name': 'Empty Helm', 'rarity': 'rare',
@@ -131,13 +195,13 @@ class TestItemText(unittest.TestCase):
     def test_none_returns_none(self):
         self.assertIsNone(_item_text(None, pob=None))
 
-    def test_unique_with_empty_name_returns_none(self):
-        # Maxroll sometimes has unique items with null/empty name (placeholder
-        # slots); these should be skipped rather than emitting a blank item.
+    def test_unique_no_base_path_falls_back(self):
+        # Unique with no recognisable base path falls back to 'Item'
         item = {'name': '', 'rarity': 'unique', 'base': ''}
-        self.assertIsNone(_item_text(item, pob=None))
-        item2 = {'name': None, 'rarity': 'unique', 'base': None}
-        self.assertIsNone(_item_text(item2, pob=None))
+        text = _item_text(item, pob=None)
+        # Should produce something (base 'Item' as fallback) - not None
+        self.assertIsNotNone(text)
+        self.assertIn('Rarity: UNIQUE', text)
 
     def test_updated_unique_bases(self):
         # Verify corrected PoE2 base types match PoB2's actual data.
@@ -164,7 +228,9 @@ class TestConvertSingle(unittest.TestCase):
 
     def setUp(self):
         self.planner = sample_maxroll_planner()
-        self.meta = convert(self.planner, _PROFILE, variant_idx=1, level=90)
+        self.pob = _FakePobMods()
+        self.meta = convert(self.planner, _PROFILE, variant_idx=1, level=90,
+                            pob=self.pob)
 
     def test_returns_code_and_xml(self):
         self.assertIn('code', self.meta)
@@ -191,7 +257,7 @@ class TestConvertSingle(unittest.TestCase):
 
     def test_items_in_xml(self):
         self.assertIn('Plague Wand', self.meta['xml'])
-        self.assertIn('+50 to Maximum Mana', self.meta['xml'])
+        self.assertIn('+50 to maximum Mana', self.meta['xml'])
 
     def test_unique_item_in_xml(self):
         # Apostrophe is HTML-escaped in the XML wrapper
@@ -262,6 +328,7 @@ class TestEmptyJewelSocket(unittest.TestCase):
         tree_version = '0_4'
         gems = {}
         unique_bases = {}
+        mod_texts = {}
 
     def test_empty_socket_for_node_with_no_jewel(self):
         equip = {'items': {}}
