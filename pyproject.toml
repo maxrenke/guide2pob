@@ -24,6 +24,7 @@ analyze = []
 [project.scripts]
 guide2pob = "guide2pob.cli:main"
 guide2pob-sync = "guide2pob.sync:main"
+guide2pob-meta = "guide2pob.meta:main"
 
 [project.urls]
 Homepage = "https://github.com/maxrenke/guide2pob"
