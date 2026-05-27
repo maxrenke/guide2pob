@@ -54,6 +54,29 @@ guide2pob <url> --variant all -o out/ --xml
 guide2pob <url> --merge --upload
 ```
 
+### Generate in-game .build files
+
+PoE2 patch 0.5 added a native Build Planner that reads `.build` JSON files
+from `Documents/My Games/Path of Exile 2/Preferences/BuildPlanner/`. Format
+spec: https://www.pathofexile.com/developer/docs/game
+
+`guide2pob-buildfile` walks a PoB2 Builds directory and writes one `.build`
+file per XML into that folder, using the largest (= endgame) tree spec of
+each build. Passive node string IDs come from GGG's
+[poe2-skilltree-export](https://github.com/grindinggear/poe2-skilltree-export);
+gem IDs come from your local PoB2 install's `Data/Gems.lua`.
+
+```sh
+# Regenerate .build files for every build in the auto-detected PoB2 Builds dir
+guide2pob-buildfile
+
+# Preview without writing
+guide2pob-buildfile --dry-run
+
+# Custom source / destination
+guide2pob-buildfile "C:\path\to\Builds" -o "C:\path\to\BuildPlanner"
+```
+
 ### Sync an existing PoB Builds folder
 
 `guide2pob-sync` walks a Path of Building Builds directory, re-scrapes every
