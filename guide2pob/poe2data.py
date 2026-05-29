@@ -91,8 +91,17 @@ ASCENDANCY_TO_CLASS = {
 def resolve_class(class_name=None, ascendancy=None):
     """Return a dict of every identifier PoB needs for a class+ascendancy."""
     if ascendancy:
-        ascendancy = _match(ascendancy, ASCENDANCY_TO_CLASS)
-        class_name = ASCENDANCY_TO_CLASS[ascendancy]
+        try:
+            ascendancy = _match(ascendancy, ASCENDANCY_TO_CLASS)
+            class_name = ASCENDANCY_TO_CLASS[ascendancy]
+        except ValueError:
+            # Ascendancy not in the bundled PoB data yet (e.g. a brand-new
+            # league ascendancy like Martial Artist). Fall back to no
+            # ascendancy if the class is otherwise known, rather than failing
+            # the whole import.
+            if not class_name:
+                raise
+            ascendancy = None
     if not class_name:
         raise ValueError("class could not be determined; pass --class/--ascendancy")
     class_name = _match(class_name, CLASSES)
