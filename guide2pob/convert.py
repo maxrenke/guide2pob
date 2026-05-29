@@ -601,7 +601,7 @@ def convert_merged(variants, pob=None, class_override=None,
         order = sorted(range(len(variants)),
                        key=lambda i: len((variants[i].get('passiveTree') or {})
                                           .get('mainTree', {})
-                                          .get('selectedSlugs', [])))
+                                          .get('selectedSlugs', None) or []))
         variants = [variants[i] for i in order]
         titles = [titles[i] for i in order]
 

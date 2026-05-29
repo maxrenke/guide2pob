@@ -11,3 +11,8 @@ venv/
 *.pob.txt
 out/
 moba-build/
+
+# local personal/generated artifacts (not source)
+PoB Import Codes.csv
+PoB Import Codes.txt
+We listed ALL of the 0.5 League Starters*.txt
