@@ -26,6 +26,7 @@ guide2pob = "guide2pob.cli:main"
 guide2pob-sync = "guide2pob.sync:main"
 guide2pob-meta = "guide2pob.meta:main"
 guide2pob-buildfile = "guide2pob.buildfile_cli:main"
+guide2pob-filter = "guide2pob.lootfilter_cli:main"
 
 [project.urls]
 Homepage = "https://github.com/maxrenke/guide2pob"

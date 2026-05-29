@@ -101,6 +101,31 @@ guide2pob-buildfile --dry-run
 guide2pob-buildfile "C:\path\to\Builds" -o "C:\path\to\BuildPlanner"
 ```
 
+### Customize a loot filter for a build
+
+`guide2pob-filter` turns a NeverSink/FilterBlade base filter into a
+build-tailored one. It installs the base filters from a zip (backing up any
+existing `*.filter` to `_old_filters_<date>/` first), reads the build's
+class/ascendancy/skills from its PoB2 XML to pick an archetype, and injects a
+highlight block into NeverSink's OVERRIDE AREA (first-match-wins, so build gear
+is loud regardless of strictness). The base filter is never edited in place.
+
+```sh
+# Install a base zip and customize the Strict filter for a build
+guide2pob-filter --zip "0.5 witch campaign.zip" --build "ED Contagion" --strictness 3
+
+# Reuse already-installed base filters (no zip)
+guide2pob-filter --build "ED Contagion"
+
+# No PoB build — classify manually
+guide2pob-filter --zip base.zip --name "My Build" --archetype caster
+```
+
+Archetypes (`caster`, `minion`, `attack_armour`, `attack_bow`, `crossbow`) are
+auto-detected from class/ascendancy and upgraded to `minion` when the build's
+skills look summoner-y; override with `--archetype`. Output is written as
+`<build name> [<strictness>].filter` into the PoE2 filter folder.
+
 ### Sync an existing PoB Builds folder
 
 `guide2pob-sync` walks a Path of Building Builds directory, re-scrapes every
