@@ -22,19 +22,32 @@ from .poe2data import CLASSES
 TREE_EXPORT_URL = ('https://raw.githubusercontent.com/grindinggear/'
                    'poe2-skilltree-export/main/data.json')
 
-# PoB slot name -> .build inventory_id (per dev docs example).
-SLOT_INVENTORY_ID = {
-    'Weapon 1':    'Weapon1',
-    'Weapon 2':    'Weapon2',
-    'Helmet':      'Helm1',
-    'Body Armour': 'BodyArmour1',
-    'Gloves':      'Gloves1',
-    'Boots':       'Boots1',
-    'Belt':        'Belt1',
-    'Amulet':      'Amulet1',
-    'Ring 1':      'Ring1',
-    'Ring 2':      'Ring2',
-}
+# PoB slot name -> .build inventory_id, in the emission order Mobalytics uses.
+# Note the weapon mapping: PoB's main set is Weapon 1 (main hand) + Weapon 2
+# (off hand / focus / shield); the weapon-swap set's main hand is "Weapon 1
+# Swap". The .build schema names these Weapon1 / Offhand1 / Weapon2 / Offhand2.
+SLOT_INVENTORY_ID = [
+    ('Weapon 1',      'Weapon1'),
+    ('Weapon 1 Swap', 'Weapon2'),
+    ('Weapon 2',      'Offhand1'),
+    ('Weapon 2 Swap', 'Offhand2'),
+    ('Helmet',        'Helm'),
+    ('Body Armour',   'BodyArmour'),
+    ('Gloves',        'Gloves'),
+    ('Boots',         'Boots'),
+    ('Amulet',        'Amulet'),
+    ('Belt',          'Belt'),
+    ('Ring 1',        'Ring'),
+    ('Ring 2',        'Ring2'),
+    ('Flask 1',       'Flask1'),
+    ('Flask 2',       'Flask2'),
+    ('Flask 3',       'Flask3'),
+    ('Flask 4',       'Flask4'),
+    ('Flask 5',       'Flask5'),
+    ('Charm 1',       'Charm1'),
+    ('Charm 2',       'Charm2'),
+    ('Charm 3',       'Charm3'),
+]
 
 
 # -- skill tree mapping cache ----------------------------------------------
@@ -91,6 +104,86 @@ def _gem_name_to_id(pob):
                 m[nm.group(1).lower()] = blk.group(1)
     _GEM_NAME_TO_ID_CACHE[key] = m
     return m
+
+
+# Gem-level -> character level requirement (PoE2). A gem's Tier equals the
+# minimum gem level needed to create it, so a gem's earliest usable character
+# level is this curve indexed by its Tier. Used as a fallback when PoB's live
+# skill data can't be read. Index 0 == gem level 1.
+_GEM_REQ_CURVE_FALLBACK = [1, 3, 6, 10, 14, 18, 22, 26, 31, 36, 41, 46, 52,
+                           58, 64, 66, 72, 78, 84, 90]
+
+_GEM_META_CACHE = {}
+_GEM_CURVE_CACHE = {}
+
+
+def _gem_name_to_meta(pob):
+    """Return {lowercased gem name: {'id': metadata_path, 'tier': int}}."""
+    if not pob:
+        return {}
+    key = id(pob)
+    cached = _GEM_META_CACHE.get(key)
+    if cached is not None:
+        return cached
+    out = {}
+    f = os.path.join(pob.path, 'Data', 'Gems.lua')
+    if os.path.isfile(f):
+        text = open(f, encoding='utf-8').read()
+        pat = re.compile(
+            r'\["(Metadata/Items/Gems/[^"]+)"\]\s*=\s*\{(.*?)\n\t\}', re.S)
+        for blk in pat.finditer(text):
+            body = blk.group(2)
+            nm = re.search(r'name = "([^"]+)"', body)
+            if not nm:
+                continue
+            tier_m = re.search(r'Tier = (\d+)', body)
+            out[nm.group(1).lower()] = {
+                'id': blk.group(1),
+                'tier': int(tier_m.group(1)) if tier_m else 0,
+            }
+    _GEM_META_CACHE[key] = out
+    return out
+
+
+def _gem_req_curve(pob):
+    """Return the gem-level -> character-level requirement curve (index 0 ==
+    gem level 1), read from PoB skill data with a baked-in fallback."""
+    if not pob:
+        return _GEM_REQ_CURVE_FALLBACK
+    key = id(pob)
+    cached = _GEM_CURVE_CACHE.get(key)
+    if cached is not None:
+        return cached
+    curve = None
+    skills_dir = os.path.join(pob.path, 'Data', 'Skills')
+    if os.path.isdir(skills_dir):
+        import glob as _glob
+        for f in _glob.glob(os.path.join(skills_dir, '*.lua')):
+            try:
+                t = open(f, encoding='utf-8', errors='ignore').read()
+            except OSError:
+                continue
+            i = t.find('["EssenceDrainPlayer"]')
+            if i < 0:
+                continue
+            pairs = re.findall(
+                r'\[(\d+)\]\s*=\s*\{[^}]*?levelRequirement\s*=\s*(\d+)',
+                t[i:i + 12000], re.S)
+            vals = [max(1, int(r)) for _, r in pairs]
+            if vals:
+                curve = vals
+            break
+    curve = curve or list(_GEM_REQ_CURVE_FALLBACK)
+    _GEM_CURVE_CACHE[key] = curve
+    return curve
+
+
+def tier_to_level(tier, curve):
+    """Map a gem Tier to the character level at which it first becomes usable."""
+    if not tier or tier < 1:
+        return 1
+    idx = min(tier - 1, len(curve) - 1)
+    return max(1, curve[idx])
 
 
 # -- PoB XML parsing -------------------------------------------------------
@@ -205,6 +298,74 @@ def parse_pob_xml(xml_text, *, prefer='largest'):
     }
 
 
+# -- variant progression ----------------------------------------------------
+
+# Approximate character level at the start of each PoE2 campaign act. Used to
+# turn a build's act-staged variants into per-gem/-item level intervals.
+ACT_START_LEVEL = {1: 1, 2: 12, 3: 22, 4: 33, 5: 40, 6: 50}
+_ENDGAME_LEVEL = 65
+
+
+def variant_start_level(title, index=0, total=1):
+    """Map a PoB variant/set title (e.g. 'ACT 2', 'ENDGAME (LOW LIFE)') to the
+    approximate character level at which that stage begins."""
+    t = (title or '').lower()
+    m = re.search(r'act\s*(\d+)', t)
+    if m:
+        n = int(m.group(1))
+        # "Act N - Endgame" style still keys off the act number.
+        return ACT_START_LEVEL.get(n, _ENDGAME_LEVEL)
+    if 'endgame' in t or 'maps' in t or 'pinnacle' in t:
+        return _ENDGAME_LEVEL
+    # Unlabelled: spread evenly across 1..endgame by position.
+    if total > 1:
+        return 1 + round((_ENDGAME_LEVEL - 1) * index / (total - 1))
+    return 1
+
+
+def _sets_in_order(parent, tag):
+    return list(parent.findall(tag)) if parent is not None else []
+
+
+def parse_pob_progression(xml_text):
+    """Like parse_pob_xml(prefer='largest') but also derives, by scanning every
+    variant set in order, the earliest character level at which each gem and
+    each equipped slot first appears. Returns the largest-variant structure plus
+    ``gem_levels`` ({gem_name_lower: level}) and ``item_levels`` ({slot: level}).
+    """
+    base = parse_pob_xml(xml_text, prefer='largest')
+
+    root = ET.fromstring(xml_text)
+    skills_el = root.find('Skills')
+    items_el = root.find('Items')
+    skillsets = _sets_in_order(skills_el, 'SkillSet')
+    itemsets = _sets_in_order(items_el, 'ItemSet')
+
+    gem_levels = {}
+    for i, ss in enumerate(skillsets):
+        lvl = variant_start_level(ss.get('title'), i, len(skillsets))
+        for grp in ss.findall('Skill'):
+            for g in grp.findall('Gem'):
+                nm = g.get('nameSpec')
+                if nm and g.get('enabled', 'true').lower() == 'true':
+                    key = nm.lower()
+                    if key not in gem_levels or lvl < gem_levels[key]:
+                        gem_levels[key] = lvl
+
+    item_levels = {}
+    for i, iset in enumerate(itemsets):
+        lvl = variant_start_level(iset.get('title'), i, len(itemsets))
+        for slot in iset.findall('Slot'):
+            nm = slot.get('name')
+            if nm and slot.get('itemId'):
+                if nm not in item_levels or lvl < item_levels[nm]:
+                    item_levels[nm] = lvl
+
+    base['gem_levels'] = gem_levels
+    base['item_levels'] = item_levels
+    return base
+
+
 # -- assembly --------------------------------------------------------------
 
 def _ascendancy_internal_id(name):
@@ -236,13 +397,93 @@ def _item_name_and_unique(text):
     return name, is_unique
 
 
+_ITEM_TRAILERS = ('corrupted', 'mirrored', 'fractured', 'split',
+                  'synthesised', 'note:', 'crafted:', 'implicit')
+
+
+def item_additional_text(text):
+    """Render a PoB item as Mobalytics' .build `additional_text`.
+
+    Format: a header line (the unique name for uniques, else the base type)
+    followed by numbered explicit mod lines, e.g.::
+
+        Withered Wand
+        1. 44% increased Spell Damage
+        2. +1 to Level of all Chaos Spell Skills
+
+    Returns None when the text isn't a parseable item.
+    """
+    if not text:
+        return None
+    raw = [l.strip() for l in text.splitlines()]
+    nonempty = [l for l in raw if l]
+    if not nonempty or not nonempty[0].lower().startswith('rarity:'):
+        return None
+    rarity = nonempty[0].split(':', 1)[1].strip().lower()
+    name = nonempty[1] if len(nonempty) > 1 else ''
+    base = nonempty[2] if len(nonempty) > 2 else name
+    header = name if rarity == 'unique' else base
+
+    # Explicit mods follow the "Implicits: N" line (after skipping N implicits),
+    # and run until the next separator / trailer block.
+    mods = []
+    impl_idx = None
+    n_impl = 0
+    for i, l in enumerate(raw):
+        if l.lower().startswith('implicits:'):
+            impl_idx = i
+            try:
+                n_impl = int(l.split(':', 1)[1].strip())
+            except ValueError:
+                n_impl = 0
+            break
+    if impl_idx is not None:
+        j = impl_idx + 1 + n_impl
+        while j < len(raw):
+            l = raw[j]
+            if not l:
+                if mods:
+                    break
+                j += 1
+                continue
+            low = l.lower()
+            if low.startswith('---') or low.startswith(_ITEM_TRAILERS):
+                break
+            mods.append(l)
+            j += 1
+
+    out = header
+    for i, m in enumerate(mods, 1):
+        out += f'\n{i}. {m}'
+    return out
+
+
 def build_dotbuild(parsed, *, pob=None, node_id_map=None, name=None,
                     description=None, author=None, source_url=None):
     """Construct the .build JSON dict from a parsed PoB XML."""
     node_id_map = node_id_map or {}
-    gem_map = _gem_name_to_id(pob)
+    gem_meta = _gem_name_to_meta(pob)          # name_lower -> {'id', 'tier'}
+    req_curve = _gem_req_curve(pob)
 
     asc_id = _ascendancy_internal_id(parsed['ascend_name'])
+    full_lvl = [1, 100]
+    gem_levels = parsed.get('gem_levels') or {}
+    item_levels = parsed.get('item_levels') or {}
+
+    def _gem_id(name):
+        return (gem_meta.get((name or '').lower()) or {}).get('id')
+
+    def _gem_interval(name):
+        key = (name or '').lower()
+        # Earliest the build actually uses the gem = the later of (a) the gem's
+        # own availability from its Tier, and (b) the act/variant it first
+        # appears in. Tier gives precise per-gem timing; the variant level keeps
+        # it consistent with the build's progression.
+        tier = (gem_meta.get(key) or {}).get('tier', 0)
+        tier_lvl = tier_to_level(tier, req_curve)
+        variant_lvl = gem_levels.get(key, 1)
+        lvl = max(tier_lvl, variant_lvl, 1)
+        return [lvl, 100]
     doc = {'name': name or parsed['class_name'] or 'Build'}
     if author:
         doc['author'] = author
@@ -256,45 +497,56 @@ def build_dotbuild(parsed, *, pob=None, node_id_map=None, name=None,
     if asc_id:
         doc['ascendancy'] = asc_id
 
+    # Passives: list of {"id": <passive string id>}.
     passives = []
     for nid in parsed['node_ids']:
         sid = node_id_map.get(nid)
         if sid:
-            passives.append(sid)
+            passives.append({'id': sid})
     if passives:
         doc['passives'] = passives
 
+    # Skills: each {"id", "level_interval", "support_skills":[{"id","level_interval"}]}.
+    # Exact per-gem level timing isn't recoverable from the PoB snapshot, so we
+    # use the full [1, 100] interval (a valid, in-game-loadable default).
     skills = []
     for grp in parsed['skill_groups']:
         gems = grp['gems']
         if not gems:
             continue
-        main_id = gem_map.get(gems[0].lower())
+        main_id = _gem_id(gems[0])
         if not main_id:
             continue
-        entry = {'id': main_id}
+        entry = {'id': main_id, 'level_interval': _gem_interval(gems[0])}
         supports = []
         for nm in gems[1:]:
-            gid = gem_map.get(nm.lower())
+            gid = _gem_id(nm)
             if gid:
-                supports.append(gid)
+                supports.append({'id': gid, 'level_interval': _gem_interval(nm)})
         if supports:
             entry['support_skills'] = supports
         skills.append(entry)
     if skills:
         doc['skills'] = skills
 
+    # Inventory: {"inventory_id", "additional_text", "level_interval", slot_x/y}.
     inventory_slots = []
-    for pob_slot, inv_id in SLOT_INVENTORY_ID.items():
+    for pob_slot, inv_id in SLOT_INVENTORY_ID:
         iid = parsed['slot_map'].get(pob_slot)
         if not iid:
             continue
         item_text = parsed['items_by_id'].get(iid)
-        item_name, is_unique = _item_name_and_unique(item_text)
-        entry = {'inventory_id': inv_id}
-        if is_unique and item_name:
-            entry['unique_name'] = item_name
-        inventory_slots.append(entry)
+        add_text = item_additional_text(item_text)
+        if add_text is None:
+            continue
+        ilvl = item_levels.get(pob_slot)
+        inventory_slots.append({
+            'additional_text': add_text,
+            'inventory_id': inv_id,
+            'level_interval': [ilvl, 100] if ilvl else list(full_lvl),
+            'slot_x': 0,
+            'slot_y': 0,
+        })
     if inventory_slots:
         doc['inventory_slots'] = inventory_slots
 

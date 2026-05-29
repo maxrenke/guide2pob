@@ -7,8 +7,8 @@ import argparse
 
 from . import __version__
 from .buildfile import (
-    parse_pob_xml, build_dotbuild, load_tree_export, build_node_id_map,
-    find_buildplanner_dir, write_buildfile, safe_filename)
+    parse_pob_xml, parse_pob_progression, build_dotbuild, load_tree_export,
+    build_node_id_map, find_buildplanner_dir, write_buildfile, safe_filename)
 from .pobdata import find_install, find_builds_dir, PoBData
 
 
@@ -57,7 +57,10 @@ def _process_one(xml_path, *, node_id_map, pob, out_dir, prefer, dry_run,
         return None
 
     try:
-        parsed = parse_pob_xml(xml, prefer=prefer)
+        # 'largest' (default) also derives per-gem/-item level intervals from
+        # the build's act-staged variants; 'active' is a single-variant snapshot.
+        parsed = (parse_pob_progression(xml) if prefer == 'largest'
+                  else parse_pob_xml(xml, prefer=prefer))
     except Exception as e:  # noqa: BLE001
         print(f'skip {xml_path}: parse failed: {e}', file=sys.stderr)
         return None
@@ -120,17 +123,29 @@ def main(argv=None):
     if args.verbose:
         print(f'  mapped {len(node_id_map)} passive nodes', file=sys.stderr)
 
-    xmls = sorted(f for f in os.listdir(builds_dir)
-                  if f.lower().endswith('.xml') and
-                  os.path.isfile(os.path.join(builds_dir, f)))
-    if not xmls:
+    # Walk recursively so class subfolders are included; skip backup/dupe dirs.
+    paths = []
+    for root, dirs, files in os.walk(builds_dir):
+        dirs[:] = [d for d in dirs
+                   if not d.startswith('_backup') and d != '_duplicates']
+        for f in files:
+            if f.lower().endswith('.xml'):
+                paths.append(os.path.join(root, f))
+    paths.sort()
+    if not paths:
         print('no .xml builds found', file=sys.stderr)
         return 1
 
-    print(f'processing {len(xmls)} build(s)...', file=sys.stderr)
+    print(f'processing {len(paths)} build(s)...', file=sys.stderr)
     written = 0
-    for name in xmls:
-        path = os.path.join(builds_dir, name)
+    seen = {}
+    for path in paths:
+        base = os.path.splitext(os.path.basename(path))[0]
+        if base in seen:
+            print(f'skip {os.path.relpath(path, builds_dir)}: duplicate name of '
+                  f'{os.path.relpath(seen[base], builds_dir)}', file=sys.stderr)
+            continue
+        seen[base] = path
         result = _process_one(
             path, node_id_map=node_id_map, pob=pob, out_dir=out_dir,
             prefer=args.prefer, dry_run=args.dry_run, verbose=args.verbose)
@@ -138,7 +153,7 @@ def main(argv=None):
             written += 1
 
     verb = 'would write' if args.dry_run else 'wrote'
-    print(f'{verb} {written}/{len(xmls)} .build file(s)', file=sys.stderr)
+    print(f'{verb} {written}/{len(paths)} .build file(s)', file=sys.stderr)
     return 0
 
 

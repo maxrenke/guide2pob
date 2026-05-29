@@ -60,11 +60,35 @@ PoE2 patch 0.5 added a native Build Planner that reads `.build` JSON files
 from `Documents/My Games/Path of Exile 2/Preferences/BuildPlanner/`. Format
 spec: https://www.pathofexile.com/developer/docs/game
 
-`guide2pob-buildfile` walks a PoB2 Builds directory and writes one `.build`
-file per XML into that folder, using the largest (= endgame) tree spec of
-each build. Passive node string IDs come from GGG's
-[poe2-skilltree-export](https://github.com/grindinggear/poe2-skilltree-export);
-gem IDs come from your local PoB2 install's `Data/Gems.lua`.
+**By default, every PoE2 import also writes a matching `.build`** into your
+BuildPlanner directory (named the same as the saved PoB build), so the build
+shows up in-game with no extra step. Disable with `--no-buildfile`, or change
+the destination with `--buildfile-dir`.
+
+The `.build` mirrors the official Mobalytics "Build Planner Export" schema:
+
+- **Passives** — the full endgame tree (a superset of any single Mobalytics
+  variant), as `{ "id": ... }` objects. Node string IDs come from GGG's
+  [poe2-skilltree-export](https://github.com/grindinggear/poe2-skilltree-export).
+- **Skills** — every gem group with `support_skills`, plus a per-gem
+  `level_interval` (see *progression* below). Gem IDs come from your local
+  PoB2 install's `Data/Gems.lua`.
+- **Inventory** — one entry per slot with `additional_text` (the item's base
+  and explicit mods), `level_interval`, and slot position.
+
+**Progression / per-gem level intervals.** Each gem's start level is
+`max(tier_level, variant_level)`:
+
+- *tier_level* — the character level at which the gem first becomes usable,
+  derived from its `Tier` (= minimum gem level) via PoB's gem-level requirement
+  curve. This is precise to within ~1 level of Mobalytics' own export (the
+  residual is GGG quest-reward timing, which isn't in any offline data source).
+- *variant_level* — the act in which the build first slots the gem, read from
+  the build's `ACT 1 … ENDGAME` variant sets (PoE2 act → level breakpoints).
+
+`guide2pob-buildfile` (re)generates `.build` files for an existing Builds
+directory. It recurses into subfolders (skipping `_backup*` / `_duplicates`)
+and de-dupes by build name.
 
 ```sh
 # Regenerate .build files for every build in the auto-detected PoB2 Builds dir

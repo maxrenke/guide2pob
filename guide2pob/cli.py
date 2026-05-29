@@ -127,6 +127,13 @@ def _build_parser():
                    help='Path of Building install directory')
     p.add_argument('--no-pob', action='store_true',
                    help='ignore any Path of Building install')
+    p.add_argument('--no-buildfile', dest='buildfile', action='store_false',
+                   default=True,
+                   help='do not also emit a PoE2 in-game .build file when '
+                        'saving to the Path of Building Builds directory')
+    p.add_argument('--buildfile-dir', metavar='DIR',
+                   help="destination for the .build file (default: PoE2's "
+                        'Preferences/BuildPlanner directory)')
     p.add_argument('--version', action='version',
                    version=f'guide2pob {__version__}')
     return p
@@ -134,12 +141,14 @@ def _build_parser():
 
 def _load_pob(args):
     if args.no_pob:
+        args._pob = None
         return None
     install = find_install(args.pob_path)
     if not install:
         print('note: no Path of Building (PoE2) install found - gem names '
               'will be approximate and class detection needs --ascendancy',
               file=sys.stderr)
+        args._pob = None
         return None
     print(f'using Path of Building data: {install}', file=sys.stderr)
     if args.save_pob:
@@ -149,7 +158,9 @@ def _load_pob(args):
     exe = find_exe(install)
     if exe:
         args._pob_exe = exe
-    return PoBData(install)
+    pob = PoBData(install)
+    args._pob = pob
+    return pob
 
 
 def _make_notes(name, source, labels, description=None, html=None):
@@ -381,6 +392,42 @@ def _run_merge_poe1(doc, slug, args, labels, notes=None):
     return 0
 
 
+# -- .build file emission ---------------------------------------------------
+
+def _node_id_map(args):
+    """Lazily load + cache the GGG passive-tree node id map on args."""
+    cached = getattr(args, '_node_id_map_cache', None)
+    if cached is not None:
+        return cached
+    from .buildfile import load_tree_export, build_node_id_map
+    m = build_node_id_map(load_tree_export())
+    args._node_id_map_cache = m
+    return m
+
+
+def _emit_buildfile(xml_text, saved_xml_path, args):
+    """Emit a PoE2 in-game .build next to the saved PoB build, same base name.
+
+    Best-effort: any failure is reported but never aborts the import.
+    """
+    from .buildfile import (parse_pob_progression, build_dotbuild,
+                            write_buildfile, find_buildplanner_dir, safe_filename)
+    try:
+        node_map = _node_id_map(args)
+        parsed = parse_pob_progression(xml_text)
+        base = os.path.splitext(os.path.basename(saved_xml_path))[0]
+        out_dir = args.buildfile_dir or find_buildplanner_dir()
+        doc = build_dotbuild(parsed, pob=getattr(args, '_pob', None),
+                             node_id_map=node_map, name=base,
+                             source_url=getattr(args, 'source', None))
+        path = write_buildfile(doc, out_dir, safe_filename(base) + '.build')
+        print(f'.build {path}', file=sys.stderr)
+        return path
+    except Exception as e:  # noqa: BLE001 - .build is a bonus, never fatal
+        print(f'note: could not write .build: {e}', file=sys.stderr)
+        return None
+
+
 # -- shared output ----------------------------------------------------------
 
 def _output(meta, slug, idx, args, out_dir, game='poe2', label=None):
@@ -425,6 +472,8 @@ def _output(meta, slug, idx, args, out_dir, game='poe2', label=None):
         saved_path = os.path.join(args._pob_builds_dir, f'{slug}{suffix}.xml')
         _write(saved_path, meta['xml'])
         print(f'saved  {saved_path}', file=sys.stderr)
+        if game == 'poe2' and getattr(args, 'buildfile', True):
+            _emit_buildfile(meta['xml'], saved_path, args)
     if args.upload or args.open:
         if args.open and saved_path and getattr(args, '_pob_exe', None):
             # Signal main() to launch PoB2 once after all sources are done.
