@@ -133,7 +133,7 @@ def _build_parser():
                         'saving to the Path of Building Builds directory')
     p.add_argument('--buildfile-dir', metavar='DIR',
                    help="destination for the .build file (default: PoE2's "
-                        'Preferences/BuildPlanner directory)')
+                        'BuildPlanner directory)')
     p.add_argument('--version', action='version',
                    version=f'guide2pob {__version__}')
     return p

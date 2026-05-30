@@ -1,7 +1,7 @@
 """Generate Path of Exile 2 in-game .build files from PoB build XML.
 
 The .build format is the JSON document PoE2's Build Planner reads from
-``Documents/My Games/Path of Exile 2/Preferences/BuildPlanner/``. Schema:
+``Documents/My Games/Path of Exile 2/BuildPlanner/``. Schema:
 https://www.pathofexile.com/developer/docs/game
 
 Passive nodes are referenced by their PassiveSkills table string id
@@ -560,7 +560,7 @@ def find_buildplanner_dir(explicit=None):
     if explicit:
         return explicit
     return os.path.join(os.path.expanduser('~'), 'Documents', 'My Games',
-                        'Path of Exile 2', 'Preferences', 'BuildPlanner')
+                        'Path of Exile 2', 'BuildPlanner')
 
 
 def safe_filename(s):

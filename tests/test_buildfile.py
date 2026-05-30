@@ -234,7 +234,7 @@ class TestFsHelpers(unittest.TestCase):
     def test_find_buildplanner_dir_default(self):
         p = find_buildplanner_dir()
         self.assertIn('Path of Exile 2', p)
-        self.assertTrue(p.endswith(os.path.join('Preferences', 'BuildPlanner')))
+        self.assertTrue(p.endswith(os.path.join('Path of Exile 2', 'BuildPlanner')))
 
     def test_find_buildplanner_dir_explicit(self):
         self.assertEqual(find_buildplanner_dir('/x/y'), '/x/y')

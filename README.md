@@ -57,7 +57,7 @@ guide2pob <url> --merge --upload
 ### Generate in-game .build files
 
 PoE2 patch 0.5 added a native Build Planner that reads `.build` JSON files
-from `Documents/My Games/Path of Exile 2/Preferences/BuildPlanner/`. Format
+from `Documents/My Games/Path of Exile 2/BuildPlanner/`. Format
 spec: https://www.pathofexile.com/developer/docs/game
 
 **By default, every PoE2 import also writes a matching `.build`** into your

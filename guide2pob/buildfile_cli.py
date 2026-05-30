@@ -32,7 +32,7 @@ def _build_parser():
                         '(default: auto-detected)')
     p.add_argument('-o', '--out', metavar='DIR',
                    help='destination directory (default: '
-                        '~/Documents/My Games/Path of Exile 2/Preferences/BuildPlanner)')
+                        '~/Documents/My Games/Path of Exile 2/BuildPlanner)')
     p.add_argument('--prefer', choices=['largest', 'active'], default='largest',
                    help='which variant to export when a build has several '
                         "(default: 'largest' = the spec with the most passives)")
