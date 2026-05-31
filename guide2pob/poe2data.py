@@ -27,8 +27,9 @@ CLASSES = {
     'Huntress': {
         'classId': 2, 'integerId': 8,
         'ascendancies': [
-            {'name': 'Amazon',    'internalId': 'Huntress1'},
-            {'name': 'Ritualist', 'internalId': 'Huntress3'},
+            {'name': 'Amazon',        'internalId': 'Huntress1'},
+            {'name': 'Spirit Walker', 'internalId': 'Huntress2'},
+            {'name': 'Ritualist',     'internalId': 'Huntress3'},
         ],
     },
     'Warrior': {
@@ -74,6 +75,7 @@ CLASSES = {
     'Monk': {
         'classId': 8, 'integerId': 10,
         'ascendancies': [
+            {'name': 'Martial Artist',     'internalId': 'Monk1'},
             {'name': 'Invoker',            'internalId': 'Monk2'},
             {'name': 'Acolyte of Chayula', 'internalId': 'Monk3'},
         ],

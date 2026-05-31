@@ -50,6 +50,17 @@ class TestPoe2Data(unittest.TestCase):
         for name, cls in ASCENDANCY_TO_CLASS.items():
             self.assertIn(name, [a['name'] for a in CLASSES[cls]['ascendancies']])
 
+    def test_new_0_5_ascendancies(self):
+        # Spirit Walker (Huntress) and Martial Artist (Monk) were added in 0.5.
+        sw = resolve_class(ascendancy='Spirit Walker')
+        self.assertEqual(sw['class_name'], 'Huntress')
+        self.assertEqual(sw['ascend_internal_id'], 'Huntress2')
+        self.assertEqual(sw['ascend_id'], 2)
+        ma = resolve_class(ascendancy='Martial Artist')
+        self.assertEqual(ma['class_name'], 'Monk')
+        self.assertEqual(ma['ascend_internal_id'], 'Monk1')
+        self.assertEqual(ma['ascend_id'], 1)
+
 
 if __name__ == '__main__':
     unittest.main()
