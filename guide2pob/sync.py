@@ -35,6 +35,13 @@ URL_RE = re.compile(
     re.IGNORECASE,
 )
 NOTES_RE = re.compile(r'<Notes>(.*?)</Notes>', re.DOTALL)
+
+# A user-authored notes block wrapped in these markers is carried across syncs
+# (sync otherwise regenerates <Notes> entirely from the source guide).
+USER_NOTES_BEGIN = "=== USER NOTES (kept across guide2pob sync) ==="
+USER_NOTES_END = "=== END USER NOTES ==="
+_USER_NOTES_RE = re.compile(
+    re.escape(USER_NOTES_BEGIN) + r'.*?' + re.escape(USER_NOTES_END), re.DOTALL)
 CLASS_RE = re.compile(r'className="([^"]+)"')
 ASCEND_RE = re.compile(r'ascendClassName="([^"]+)"')
 PATCH_TAG_RE = re.compile(r'(?:\[[^\]]*?|\b)(\d+\.\d+)(?:[^\]]*\]|\b)')
@@ -106,6 +113,36 @@ def extract_record(xml_path: str) -> BuildRecord:
     )
 
 
+def extract_user_notes(xml_text: str) -> Optional[str]:
+    """Return the marked USER NOTES block (incl. markers) from an XML's
+    ``<Notes>``, or None if absent."""
+    nm = NOTES_RE.search(xml_text)
+    if not nm:
+        return None
+    bm = _USER_NOTES_RE.search(nm.group(1))
+    return bm.group(0) if bm else None
+
+
+def inject_user_notes(xml_text: str, block: Optional[str]) -> str:
+    """Insert a USER NOTES ``block`` into ``xml_text``'s ``<Notes>``.
+
+    If the notes already contain a marked block it's replaced; otherwise the
+    block is appended to the end of the notes. No-op without a Notes element.
+    """
+    if not block:
+        return xml_text
+    nm = NOTES_RE.search(xml_text)
+    if not nm:
+        return xml_text
+    notes = nm.group(1)
+    if USER_NOTES_BEGIN in notes:
+        new_notes = _USER_NOTES_RE.sub(lambda _m: block, notes, count=1)
+    else:
+        sep = "" if notes.endswith("\n") else "\n"
+        new_notes = f"{notes}{sep}\n{block}\n"
+    return xml_text[:nm.start(1)] + new_notes + xml_text[nm.end(1):]
+
+
 def normalize(text: str) -> List[str]:
     """Strip PoB runtime noise and blanks for comparison."""
     out = []
@@ -145,7 +182,8 @@ def scrape(url: str, out_path: str, klass: Optional[str],
 
 
 def sync_dir(builds_dir: str, *, dry_run: bool = False,
-             backup: bool = True, only: Optional[Iterable[str]] = None) -> List[SyncResult]:
+             backup: bool = True, only: Optional[Iterable[str]] = None,
+             preserve_user_notes: bool = True) -> List[SyncResult]:
     """Re-scrape and update every PoB XML in ``builds_dir``."""
     only_set = {os.path.basename(p) for p in only} if only else None
     xmls = sorted(
@@ -175,6 +213,14 @@ def sync_dir(builds_dir: str, *, dry_run: bool = False,
             if not ok:
                 results.append(SyncResult(rec, "error", msg))
                 continue
+            # Carry a marked USER NOTES block from the existing build into the
+            # freshly scraped one before diffing/writing, so it survives sync.
+            if preserve_user_notes:
+                block = extract_user_notes(_read(xml))
+                if block:
+                    merged = inject_user_notes(_read(fresh), block)
+                    with open(fresh, "w", encoding="utf-8") as f:
+                        f.write(merged)
             cur_lines = normalize(_read(xml))
             new_lines = normalize(_read(fresh))
             diff = _diff_count(cur_lines, new_lines)
@@ -265,6 +311,9 @@ def main(argv: Optional[List[str]] = None) -> int:
                    help="Skip copying originals to _backup_YYYYMMDD/.")
     p.add_argument("--only", action="append", default=None,
                    help="Only process the given filename. Repeatable.")
+    p.add_argument("--no-preserve-notes", action="store_true",
+                   help="Do not carry a marked USER NOTES block across the sync "
+                        "(by default such a block is preserved).")
     p.add_argument("--target-patch", default="0.5",
                    help="Patch tag to audit against (default: 0.5).")
     args = p.parse_args(argv)
@@ -280,7 +329,8 @@ def main(argv: Optional[List[str]] = None) -> int:
         p.error("builds_dir not provided and could not be auto-detected")
 
     results = sync_dir(builds_dir, dry_run=args.dry_run,
-                       backup=not args.no_backup, only=args.only)
+                       backup=not args.no_backup, only=args.only,
+                       preserve_user_notes=not args.no_preserve_notes)
     print(render_report(results, target_patch=args.target_patch))
     errored = sum(1 for r in results if r.status == "error")
     return 1 if errored else 0

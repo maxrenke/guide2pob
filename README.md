@@ -133,6 +133,17 @@ XML that contains a guide URL in its `<Notes>` block, and rewrites the ones
 that substantively changed (ignoring PoB runtime state like `PlayerStat`
 and `Buffs`). Originals are copied into `_backup_YYYYMMDD/` first.
 
+Sync regenerates `<Notes>` from the source guide, so hand-written notes are
+normally lost. To keep your own notes, wrap them in a marked block inside the
+build's Notes and sync carries it across automatically (disable with
+`--no-preserve-notes`):
+
+```
+=== USER NOTES (kept across guide2pob sync) ===
+your own leveling reminders, gearing targets, etc.
+=== END USER NOTES ===
+```
+
 ```sh
 # Refresh every build in the auto-detected PoB2 Builds dir
 guide2pob-sync
