@@ -88,7 +88,7 @@ def _gem_name_to_id(pob):
     """Return {lowercased gem name: 'Metadata/Items/Gems/...'} from PoB data."""
     if not pob:
         return {}
-    key = id(pob)
+    key = getattr(pob, "path", None) or id(pob)
     cached = _GEM_NAME_TO_ID_CACHE.get(key)
     if cached is not None:
         return cached
@@ -121,7 +121,7 @@ def _gem_name_to_meta(pob):
     """Return {lowercased gem name: {'id': metadata_path, 'tier': int}}."""
     if not pob:
         return {}
-    key = id(pob)
+    key = getattr(pob, "path", None) or id(pob)
     cached = _GEM_META_CACHE.get(key)
     if cached is not None:
         return cached
@@ -150,7 +150,7 @@ def _gem_req_curve(pob):
     gem level 1), read from PoB skill data with a baked-in fallback."""
     if not pob:
         return _GEM_REQ_CURVE_FALLBACK
-    key = id(pob)
+    key = getattr(pob, "path", None) or id(pob)
     cached = _GEM_CURVE_CACHE.get(key)
     if cached is not None:
         return cached
