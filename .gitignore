@@ -19,3 +19,8 @@ We listed ALL of the 0.5 League Starters*.txt
 *.build
 organize_builds.py
 compare_build.py
+
+# local junctions to game/PoB directories (machine-specific)
+game-filters/
+game-buildfiles/
+game-pob-builds/
