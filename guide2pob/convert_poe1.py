@@ -18,7 +18,10 @@ import zlib
 import base64
 import html as _html
 
-from .poe1data import resolve_class
+from .poe1data import resolve_class, radius_jewel_spec
+
+# Fallback only - used when the embedded pobCode lacks a treeVersion.
+_DEFAULT_TREE_VERSION = '3_25'
 
 # Mobalytics PoE1 slot name -> PoB1 slot name.
 # Grafts (Sanctum mechanic) have no PoB equivalent and are skipped.
@@ -56,6 +59,29 @@ def _class_info_from_xml(xml):
     m = re.search(r'ascendClassName="([^"]+)"', xml)
     ascend_name = m.group(1) if m else None
     return class_name, ascend_name
+
+
+def _tree_version_from_xml(xml):
+    """Pull the real treeVersion out of a decoded PoB XML string."""
+    m = re.search(r'treeVersion="([^"]+)"', xml)
+    return m.group(1) if m else None
+
+
+def _resolve_tree_version(doc, tree_version):
+    """Determine the treeVersion to write into reconstructed XML.
+
+    The passive node IDs come from the embedded pobCode, which is encoded on
+    a specific tree (e.g. 3_27 for 3.28-season guides). Writing a mismatched
+    treeVersion crashes PoB on builds with radius jewels, so prefer the value
+    embedded in the pobCode. An explicit override wins; the default is only a
+    last resort when the code has no treeVersion.
+    """
+    if tree_version is not None:
+        return tree_version
+    try:
+        return _tree_version_from_xml(decode_pobcode(doc)) or _DEFAULT_TREE_VERSION
+    except Exception:
+        return _DEFAULT_TREE_VERSION
 
 
 # -- passive tree -----------------------------------------------------------
@@ -194,6 +220,11 @@ def _jewel_text(jewel_entry):
     explicits = data.get('explicitMods') or []
 
     lines = ['Rarity: ' + rarity, name, base, '--------', 'Item Level: 82', '--------']
+    # Radius jewels (Impossible Escape, Thread of Hope, etc.) must carry a
+    # "Radius:" line or PoB sets jewelRadiusIndex=nil and crashes on load.
+    radius = radius_jewel_spec(name) if rarity == 'UNIQUE' else None
+    if radius:
+        lines += ['Radius: %s' % radius[0], 'Limited to: %d' % radius[1]]
     lines.append('Implicits: %d' % len(implicits))
     lines += [m.get('text', '') for m in implicits]
     if implicits and explicits:
@@ -281,7 +312,7 @@ def _itemset_xml(variant, set_id, start_item_id, title=None):
 
 
 def _document(cls_info, level, specs, skillsets, all_items, itemsets,
-              notes=None, tree_version='3_25'):
+              notes=None, tree_version=_DEFAULT_TREE_VERSION):
     parts = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<PathOfBuilding>',
@@ -332,7 +363,7 @@ def _get_cls_info(doc, class_override=None, ascendancy_override=None):
 
 def convert(doc, variant_idx=None, notes=None, level=90,
             class_override=None, ascendancy_override=None,
-            tree_version='3_25'):
+            tree_version=None):
     """Convert a PoE1 Mobalytics document to a PoB import code.
 
     variant_idx=None (default): decode and return the embedded pobCode
@@ -366,6 +397,7 @@ def convert(doc, variant_idx=None, notes=None, level=90,
         raise ValueError("no variants in document")
     variant = variants[variant_idx % len(variants)]
     cls_info = _get_cls_info(doc, class_override, ascendancy_override)
+    tree_version = _resolve_tree_version(doc, tree_version)
 
     items, itemset, _ = _itemset_xml(variant, 1, 1)
     try:
@@ -388,7 +420,7 @@ def convert(doc, variant_idx=None, notes=None, level=90,
 
 def convert_merged(doc, notes=None, level=90, class_override=None,
                    ascendancy_override=None, titles=None,
-                   progression_order=True, tree_version='3_25'):
+                   progression_order=True, tree_version=None):
     """Merge all PoE1 variants into one build with switchable specs/sets."""
     from .scrape import build_variants
 
@@ -398,6 +430,7 @@ def convert_merged(doc, notes=None, level=90, class_override=None,
 
     titles = titles or ['Variant %d' % i for i in range(len(variants))]
     cls_info = _get_cls_info(doc, class_override, ascendancy_override)
+    tree_version = _resolve_tree_version(doc, tree_version)
 
     if progression_order:
         order = sorted(range(len(variants)),

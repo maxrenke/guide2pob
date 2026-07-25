@@ -6,7 +6,8 @@ import zlib
 
 from guide2pob.convert_poe1 import (
     decode_pobcode, _class_info_from_xml, _item_text, _jewel_text,
-    _mastery_string, _skill_groups, _tree_nodes, encode, convert,
+    _mastery_string, _skill_groups, _tree_nodes, _tree_version_from_xml,
+    _resolve_tree_version, _DEFAULT_TREE_VERSION, encode, convert,
     convert_merged)
 
 
@@ -14,13 +15,16 @@ from guide2pob.convert_poe1 import (
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_xml(class_name='Witch', ascend_name='Occultist', extra=''):
+def _make_xml(class_name='Witch', ascend_name='Occultist', extra='',
+              tree_version='3_27'):
+    spec = ('<Tree><Spec treeVersion="%s"/></Tree>' % tree_version
+            if tree_version else '')
     return (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<PathOfBuilding>'
         '<Build className="%s" ascendClassName="%s" level="90"/>'
-        '%s'
-        '</PathOfBuilding>' % (class_name, ascend_name, extra)
+        '%s%s'
+        '</PathOfBuilding>' % (class_name, ascend_name, spec, extra)
     )
 
 
@@ -29,9 +33,9 @@ def _make_pobcode(xml):
 
 
 def _make_doc(class_name='Witch', ascend_name='Occultist', extra='',
-              variants=None):
+              variants=None, tree_version='3_27'):
     """Build a minimal PoE1 doc dict with an embedded pobCode."""
-    xml = _make_xml(class_name, ascend_name, extra)
+    xml = _make_xml(class_name, ascend_name, extra, tree_version)
     doc = {'pobCode': _make_pobcode(xml)}
     if variants is not None:
         doc['buildVariants'] = {'values': variants}
@@ -179,6 +183,39 @@ class TestPoe1JewelText(unittest.TestCase):
         self.assertEqual(lines[1], 'The Covenant')
         self.assertEqual(lines[2], 'Cobalt Jewel')
 
+    def test_non_radius_unique_has_no_radius_line(self):
+        text = _jewel_text(self._jewel_entry(
+            rarity='UNIQUE', name='The Covenant', sub_title='Cobalt Jewel'))
+        self.assertNotIn('Radius:', text)
+        self.assertNotIn('Limited to:', text)
+
+    def test_impossible_escape_gets_radius_and_limit(self):
+        text = _jewel_text(self._jewel_entry(
+            rarity='UNIQUE', name='Impossible Escape',
+            sub_title='Viridian Jewel',
+            explicits=[{'text': 'Passive Skills in radius of Blood Magic '
+                                'can be allocated without being connected '
+                                'to your tree'}]))
+        self.assertIn('Radius: Small', text)
+        self.assertIn('Limited to: 1', text)
+        # Radius/Limited must precede the Implicits count so PoB parses them.
+        lines = text.split('\n')
+        self.assertLess(lines.index('Radius: Small'),
+                        next(i for i, l in enumerate(lines)
+                             if l.startswith('Implicits:')))
+
+    def test_radius_lookup_is_case_insensitive(self):
+        text = _jewel_text(self._jewel_entry(
+            rarity='UNIQUE', name='thread of hope', sub_title='Crimson Jewel'))
+        self.assertIn('Radius: Large', text)
+        self.assertIn('Limited to: 1', text)
+
+    def test_radius_only_for_uniques(self):
+        # A rare jewel that happens to share a name must not get a radius line.
+        text = _jewel_text(self._jewel_entry(
+            rarity='RARE', name='Impossible Escape'))
+        self.assertNotIn('Radius:', text)
+
 
 # ---------------------------------------------------------------------------
 # _mastery_string
@@ -300,6 +337,74 @@ class TestConvertPoe1Structured(unittest.TestCase):
 
     def test_node_count(self):
         self.assertEqual(self.meta['node_count'], 1)
+
+    def test_radius_jewel_emits_radius_in_socketed_xml(self):
+        # An Impossible Escape socketed onto the tree must produce a Radius
+        # line in its <Item> and a matching <Socket> in the <Spec>, or PoB
+        # crashes (jewelRadiusIndex=nil -> pairs(nil)) on import.
+        variant = _make_variant()
+        variant['passiveTree']['jewels'] = [{
+            'nodeSlug': 'node-13170',
+            'jewel': {
+                'data': {
+                    'rarity': 'UNIQUE',
+                    'name': 'Impossible Escape',
+                    'subTitle': 'Viridian Jewel',
+                    'implicitMods': None,
+                    'explicitMods': [{'text': 'Passive Skills in radius of '
+                                              'Blood Magic can be allocated '
+                                              'without being connected to '
+                                              'your tree'}],
+                },
+                'entityV2': {'name': 'Viridian Jewel'},
+            },
+        }]
+        doc = _make_doc(variants=[variant])
+        meta = convert(doc, variant_idx=0, ascendancy_override='Guardian')
+        self.assertIn('Impossible Escape', meta['xml'])
+        self.assertIn('Radius: Small', meta['xml'])
+        self.assertIn('Limited to: 1', meta['xml'])
+        self.assertIn('<Socket nodeId="13170"', meta['xml'])
+
+
+# ---------------------------------------------------------------------------
+# treeVersion propagation
+# ---------------------------------------------------------------------------
+
+class TestTreeVersionPropagation(unittest.TestCase):
+
+    def test_extract_from_xml(self):
+        self.assertEqual(
+            _tree_version_from_xml(_make_xml(tree_version='3_27')), '3_27')
+
+    def test_extract_missing_returns_none(self):
+        self.assertIsNone(_tree_version_from_xml('<PathOfBuilding/>'))
+
+    def test_resolve_prefers_embedded(self):
+        doc = _make_doc(tree_version='3_27')
+        self.assertEqual(_resolve_tree_version(doc, None), '3_27')
+
+    def test_resolve_explicit_override_wins(self):
+        doc = _make_doc(tree_version='3_27')
+        self.assertEqual(_resolve_tree_version(doc, '3_99'), '3_99')
+
+    def test_resolve_falls_back_when_absent(self):
+        doc = _make_doc(tree_version='')
+        self.assertEqual(_resolve_tree_version(doc, None), _DEFAULT_TREE_VERSION)
+
+    def test_structured_output_matches_embedded(self):
+        doc = _make_doc(tree_version='3_27')
+        meta = convert(doc, variant_idx=0, ascendancy_override='Occultist')
+        self.assertIn('treeVersion="3_27"', meta['xml'])
+        self.assertNotIn('treeVersion="3_25"', meta['xml'])
+
+    def test_merged_output_matches_embedded(self):
+        v_small = _make_variant(node_ids=('1',))
+        v_big = _make_variant(node_ids=tuple(str(i) for i in range(20)))
+        doc = _make_doc(variants=[v_big, v_small], tree_version='3_27')
+        meta = convert_merged(doc, ascendancy_override='Occultist')
+        for spec in re.findall(r'<Spec [^>]+>', meta['xml']):
+            self.assertIn('treeVersion="3_27"', spec)
 
 
 # ---------------------------------------------------------------------------

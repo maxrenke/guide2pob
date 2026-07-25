@@ -24,3 +24,5 @@ compare_build.py
 game-filters/
 game-buildfiles/
 game-pob-builds/
+
+.coverage

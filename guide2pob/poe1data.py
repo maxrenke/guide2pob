@@ -80,6 +80,42 @@ ASCENDANCY_TO_CLASS = {
 }
 
 
+# Radius unique jewels -> (PoB "Radius:" label, "Limited to:" count).
+#
+# PoB only sets item.jewelRadiusIndex from a "Radius: <label>" spec line
+# (Classes/Item.lua). Reconstructing one of these jewels without that line
+# leaves jewelRadiusIndex nil, which crashes PoB during cluster/radius graph
+# builds (PassiveSpec.NodesInIntuitiveLeapLikeRadius -> pairs(nil)). The
+# Mobalytics structured jewel JSON carries no radius, so it must be supplied
+# from static data. Values mirror PoB's own unique item definitions. Radius
+# labels are PoB's: Small, Medium, Large, Very Large, Massive.
+RADIUS_JEWELS = {
+    'Impossible Escape': ('Small', 1),
+    'Intuitive Leap': ('Medium', 1),
+    'Unnatural Instinct': ('Medium', 1),
+    'Thread of Hope': ('Large', 1),
+    'Brutal Restraint': ('Large', 1),
+    'Elegant Hubris': ('Large', 1),
+    'Lethal Pride': ('Large', 1),
+    'Militant Faith': ('Large', 1),
+    'Glorious Vanity': ('Large', 1),
+}
+
+# Case-insensitive lookup table.
+_RADIUS_JEWELS_LC = {k.lower(): v for k, v in RADIUS_JEWELS.items()}
+
+
+def radius_jewel_spec(name):
+    """Return (radius_label, limited_to) for a known radius unique jewel.
+
+    Returns None for jewels that have no radius (so no Radius/Limited lines
+    are emitted for them).
+    """
+    if not name:
+        return None
+    return _RADIUS_JEWELS_LC.get(str(name).strip().lower())
+
+
 def resolve_class(class_name=None, ascendancy=None):
     """Return a dict of PoB identifiers for a class+ascendancy pair."""
     if ascendancy:
